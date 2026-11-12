@@ -1,0 +1,34 @@
+{
+  "name": "okta-xaa-retail-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Okta Cross App Access (XAA / ID-JAG) demo: an AI agent talks to a Retail Portal MCP server, centrally governed by Okta.",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "concurrently -k -n agent,auth,portal -c cyan,magenta,green \"npm:dev:agent\" \"npm:dev:auth\" \"npm:dev:portal\"",
+    "dev:agent": "npm run dev -w @xaa/agent",
+    "dev:agent-limited": "npm run dev:limited -w @xaa/agent",
+    "start:both": "concurrently -k -n agent,limited,auth,portal -c cyan,yellow,magenta,green \"npm:dev:agent\" \"npm:dev:agent-limited\" \"npm:dev:auth\" \"npm:dev:portal\"",
+    "dev:auth": "npm run dev -w @xaa/retail-auth",
+    "dev:portal": "npm run dev -w @xaa/retail-portal",
+    "gen:key": "tsx scripts/gen-agent-key.ts",
+    "show:key": "tsx scripts/gen-agent-key.ts --public",
+    "typecheck": "tsc -p packages/agent --noEmit && tsc -p packages/retail-auth --noEmit && tsc -p packages/retail-portal --noEmit",
+    "check:env": "tsx scripts/check-env.ts",
+    "check:aws": "tsx scripts/aws-check.ts",
+    "list:models": "tsx scripts/list-models.ts",
+    "test:e2e": "tsx scripts/e2e.ts"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/express-session": "^1.18.0",
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.0.0",
+    "dotenv": "^16.4.5",
+    "jose": "^5.9.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

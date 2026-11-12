@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Okta XAA Setup Guide</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --card:#ffffff; --ink:#18212b; --mute:#5f6b7a; --line:#e2e6ec;
+    --brand:#0a58e6; --brand-soft:#e8f0fe; --code-bg:#0f1720; --code-ink:#e6edf3;
+    --ok:#067647; --ok-bg:#ecfdf3; --warn:#b54708; --warn-bg:#fffaeb; --bad:#b42318; --bad-bg:#fef3f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0e131a; --card:#161d26; --ink:#e6ebf2; --mute:#98a3b3; --line:#27313d;
+      --brand:#7aa7ff; --brand-soft:#17233b; --code-bg:#0a0f15; --code-ink:#e6edf3;
+      --ok:#6ce9a6; --ok-bg:#0c2a1c; --warn:#fec84b; --warn-bg:#2b2108; --bad:#fda29b; --bad-bg:#2e1412;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0e131a; --card:#161d26; --ink:#e6ebf2; --mute:#98a3b3; --line:#27313d;
+    --brand:#7aa7ff; --brand-soft:#17233b; --code-bg:#0a0f15; --code-ink:#e6edf3;
+    --ok:#6ce9a6; --ok-bg:#0c2a1c; --warn:#fec84b; --warn-bg:#2b2108; --bad:#fda29b; --bad-bg:#2e1412;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  a { color:var(--brand); }
+  code { font:0.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--brand-soft); padding:1px 6px; border-radius:5px; word-break:break-word; }
+  pre { position:relative; margin:12px 0; padding:14px 16px; background:var(--code-bg); color:var(--code-ink); border-radius:10px; overflow-x:auto; font:13.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre code { background:none; padding:0; color:inherit; font:inherit; word-break:normal; }
+  .copy { position:absolute; top:8px; right:8px; border:1px solid #3a4655; background:#1b2430; color:#c9d4e0; border-radius:6px; font:12px system-ui; padding:3px 9px; cursor:pointer; }
+  .copy:hover { border-color:#7aa7ff; }
+
+  .shell { max-width:1120px; margin:0 auto; padding:0 16px 64px; display:grid; grid-template-columns:230px minmax(0,1fr); gap:32px; }
+  @media (max-width:880px) { .shell { grid-template-columns:1fr; } nav.toc { position:static; } }
+  header.hero { grid-column:1 / -1; padding:36px 0 8px; }
+  .hero h1 { margin:0 0 6px; font-size:clamp(26px,4vw,36px); line-height:1.2; }
+  .hero p { margin:0; color:var(--mute); max-width:70ch; }
+  .tools { display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; }
+  .btn { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; padding:6px 12px; font:inherit; font-size:14px; cursor:pointer; }
+  .btn:hover { border-color:var(--brand); }
+  .progress { flex:1; min-width:160px; max-width:320px; height:8px; background:var(--line); border-radius:99px; overflow:hidden; }
+  .progress > i { display:block; height:100%; width:0; background:var(--ok); transition:width .25s; }
+  #ptext { font-size:13px; color:var(--mute); }
+
+  nav.toc { position:sticky; top:20px; align-self:start; font-size:14px; }
+  nav.toc ol { list-style:none; margin:0; padding:0; border-left:2px solid var(--line); }
+  nav.toc a { display:block; padding:5px 12px; color:var(--mute); text-decoration:none; border-left:2px solid transparent; margin-left:-2px; }
+  nav.toc a:hover, nav.toc a.on { color:var(--brand); border-left-color:var(--brand); }
+
+  main section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px 24px; margin:0 0 18px; }
+  main h2 { margin:0 0 4px; font-size:22px; line-height:1.3; }
+  main h2 .n { display:inline-grid; place-items:center; width:30px; height:30px; margin-right:10px; border-radius:50%; background:var(--brand); color:#fff; font-size:15px; vertical-align:2px; }
+  main h3 { margin:22px 0 6px; font-size:16px; }
+  main p { margin:8px 0; }
+  .lead { color:var(--mute); }
+  ol.steps { list-style:none; counter-reset:s; margin:14px 0 0; padding:0; }
+  ol.steps > li { counter-increment:s; display:grid; grid-template-columns:26px 1fr; column-gap:12px; padding:10px 0; border-top:1px solid var(--line); }
+  ol.steps > li:first-child { border-top:0; }
+  ol.steps > li > input { margin:5px 0 0; width:18px; height:18px; accent-color:var(--ok); cursor:pointer; }
+  ol.steps > li > div > ul { margin:6px 0 0; padding-left:20px; }
+  ol.steps > li > div > ul li { margin:3px 0; }
+  ol.steps > li.done > div { opacity:.55; }
+  ol.steps > li.done > div > b:first-child { text-decoration:line-through; }
+
+  .callout { border-radius:10px; padding:11px 14px; margin:14px 0; font-size:15px; border:1px solid; }
+  .callout.info { background:var(--brand-soft); border-color:transparent; }
+  .callout.warn { background:var(--warn-bg); border-color:transparent; color:var(--ink); }
+  .callout b.k { color:var(--warn); }
+  .callout.ok { background:var(--ok-bg); border-color:transparent; }
+
+  .tablewrap { overflow-x:auto; margin:12px 0; border:1px solid var(--line); border-radius:10px; }
+  table { border-collapse:collapse; width:100%; font-size:14.5px; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:var(--bg); color:var(--mute); font-size:12px; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; }
+  tr:last-child td { border-bottom:0; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+  .chips code { background:var(--bg); border:1px solid var(--line); }
+  footer { grid-column:1 / -1; color:var(--mute); font-size:13.5px; padding-top:6px; }
+  footer ul { margin:6px 0; padding-left:20px; }
+  @media print { nav.toc, .tools, .copy { display:none !important; } .shell { display:block; } main section { break-inside:avoid; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="hero">
+    <h1>Okta setup: step by step</h1>
+    <p>Configure Okta Cross App Access (XAA) so the Retail Ops Agent can reach the Retail Portal, centrally governed by Okta.
+       Based on Okta's AI agent-to-app help pages. Menu names can change between Okta releases; if a label differs, go by the intent.</p>
+    <div class="tools">
+      <div class="progress" aria-hidden="true"><i id="pbar"></i></div>
+      <span id="ptext">0 of 0 steps done</span>
+      <button class="btn" id="reset" type="button">Reset checklist</button>
+      <button class="btn" id="theme" type="button">Toggle theme</button>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <ol>
+      <li><a href="#prereq">Before you start</a></li>
+      <li><a href="#values">Values to exchange</a></li>
+      <li><a href="#s1">1 · Create the AI agent</a></li>
+      <li><a href="#s2">2 · Create the resource app</a></li>
+      <li><a href="#s3">3 · Connect them</a></li>
+      <li><a href="#s4">4 · Configure the project</a></li>
+      <li><a href="#s5">5 · Verify</a></li>
+      <li><a href="#fail">If something fails</a></li>
+      <li><a href="#extras">Optional: key pair, roles</a></li>
+      <li><a href="#open">Open questions</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section id="prereq">
+      <h2>Before you start</h2>
+      <p class="lead">You need:</p>
+      <ul>
+        <li>An Okta org with the <b>Single Sign-On</b> product.</li>
+        <li>An admin account that can manage AI agents.</li>
+        <li>At least one test user.</li>
+        <li>An Anthropic API key (for the agent's LLM).</li>
+      </ul>
+      <div class="callout info">Okta limits XAA under SSO to <b>250 ID-JAG tokens per user, per resource app, per month</b>. Each time the agent uses the exchange it consumes one.</div>
+    </section>
+
+    <section id="values">
+      <h2>Values you will exchange between Okta and <code>.env</code></h2>
+      <p class="lead">Several values must be identical on both sides. A mismatch is the most common cause of failure.</p>
+      <div class="tablewrap"><table>
+        <tr><th>Value</th><th>Where it comes from</th><th>Goes into</th></tr>
+        <tr><td>Okta org URL, e.g. <code>https://acme.oktapreview.com</code></td><td>your org</td><td><code>OKTA_ISSUER</code></td></tr>
+        <tr><td>Agent <b>Client ID</b></td><td>Step 1 (linked app → General → <i>Client Credentials</i>, or AI agent → Client registration)</td><td><code>AGENT_CLIENT_ID</code></td></tr>
+        <tr><td>Agent <b>public key</b> (the private half stays on your machine in <code>.keys/</code>)</td><td><code>npm run gen:key</code> / <code>npm run show:key</code></td><td>Step 1.4 in Okta; <code>AGENT_AUTH_METHOD=private_key_jwt</code></td></tr>
+        <tr><td>Resource <b>Issuer URL</b> <code>http://localhost:5101</code></td><td>you choose (the <code>retail-auth</code> service)</td><td>Step 2 <i>Issuer URL</i> <b>and</b> <code>RETAIL_AUTH_ISSUER</code>, identical</td></tr>
+        <tr><td><b>Resource indicator</b> <code>http://localhost:3101</code></td><td>you choose (the portal)</td><td>Step 3 <i>Resource indicator</i> <b>and</b> <code>RETAIL_RESOURCE</code>, identical</td></tr>
+        <tr><td><b>Agent's client ID registered in the resource app</b> <code>agent-at-retail</code></td><td>you choose</td><td>Step 3 field of that name <b>and</b> <code>RETAIL_AGENT_CLIENT_ID</code></td></tr>
+        <tr><td>Agent's secret at the retail auth server</td><td>you choose (never given to Okta)</td><td><code>RETAIL_AGENT_CLIENT_SECRET</code></td></tr>
+        <tr><td>Scopes</td><td>the 7 scopes below</td><td>Step 2 <i>Scopes</i>, Step 3 <i>Scopes</i>, <code>RETAIL_SCOPES</code></td></tr>
+      </table></div>
+      <div class="chips">
+        <code>products:read</code><code>inventory:read</code><code>orders:read</code><code>customers:read</code><code>orders:write</code><code>returns:read</code><code>returns:write</code>
+      </div>
+    </section>
+
+    <section id="s1">
+      <h2><span class="n">1</span>Create the AI agent (the requesting app)</h2>
+      <p class="lead">The agent is what users sign in to, and what asks Okta for permission to call the portal.</p>
+      <ol class="steps">
+        <li data-k="1.1"><div><b>Register the agent.</b> Admin Console → <b>Directory → AI Agents → Register AI Agent</b>.</div></li>
+        <li data-k="1.2"><div><b>Profile.</b> Name it <code>Retail Ops Agent</code>, add a description (optional), click <b>Next</b>.
+          <ul><li>The <b>Identifier</b> section (<i>Platform</i> / <i>External ID</i>) is "recommended if available". It is for matching agents built on a listed agent-builder platform, so leave both blank for this custom agent.</li></ul></div></li>
+        <li data-k="1.3"><div><b>User access and authentication → Allow users to access this agent:</b> choose <b>Create a new OIDC app linked to this AI agent</b>, then <b>Next</b>.
+          <ul><li>This permanently links the agent to that app. To change it later you must delete and recreate the agent.</li>
+              <li>The agent is created with status <b>STAGED</b>.</li></ul></div></li>
+        <li data-k="1.4"><div><b>Register the agent's public key</b> — do this <i>before</i> editing the app, or Okta refuses to save it with <code>'jwks' is required when 'token_endpoint_auth_method' is 'private_key_jwt'</code>.
+          <ul>
+            <li>In the project folder run <code>npm run gen:key</code> (first time) or <code>npm run show:key</code> (to re-print it). Copy the printed <b>public JWK</b>.</li>
+            <li>On the AI agent → <b>Client registration</b> tab → <b>Configure</b> next to <b>Public/private key</b> → <b>Add public key</b> → paste the JWK → <b>Done</b>.</li>
+            <li>Click <b>Activate</b>, then <b>Enable</b> in the dialog.</li>
+            <li>Okta may show its <b>own KID</b> for the key, different from the one in the JWK. That's fine: if the KIDs differ, set <code>AGENT_KEY_ID=&lt;the KID shown in Okta&gt;</code> in <code>.env</code>.</li>
+            <li>Copy the <b>Client ID</b> (also on the linked app → <b>General → Client Credentials</b>, where <i>Client authentication</i> shows <b>Public key / Private key</b>, which is what we want).</li>
+          </ul></div></li>
+        <li data-k="1.5"><div><b>Configure the linked OIDC app.</b> Applications and Resources → Applications → the linked app → <b>General → Edit</b>. If the wizard didn't already ask, set:
+          <ul>
+            <li>Grant types: <b>Authorization Code</b> and <b>Refresh Token</b> (under <i>Core grants</i>). The refresh token is what the agent exchanges for the ID-JAG.</li>
+            <li><b>Refresh token behavior:</b> either <i>Use persistent token</i> or <i>Rotate token after every use</i> works. With rotation, the agent keeps the new refresh token that Okta returns and runs one exchange at a time per user session. If Okta ever answers <code>invalid_grant</code>, sign in again.</li>
+            <li><b>Sign-in redirect URI:</b> <code>http://localhost:3000/callback</code></li>
+            <li><b>Sign-out redirect URI</b> (optional): <code>http://localhost:3000/</code></li>
+            <li>PKCE ("Require PKCE as additional verification") can stay off; the agent always sends PKCE anyway.</li>
+          </ul></div></li>
+        <li data-k="1.6"><div><b>Assign users.</b> AI agent → <b>User access</b> tab → <b>Application → Assignments</b> → assign your test user or group.
+          <ul><li>The linked app starts inactive, so it may show under the <i>Inactive</i> tab.</li></ul></div></li>
+        <li data-k="1.7"><div><b>Activate the agent.</b> On the AI agent page: <b>Actions → Activate</b>.</div></li>
+      </ol>
+      <div class="callout ok">You now have: <code>OKTA_ISSUER</code>, <code>AGENT_CLIENT_ID</code>, and the key in <code>.keys/</code> (<code>AGENT_AUTH_METHOD=private_key_jwt</code>). No client secret is needed.</div>
+    </section>
+
+    <section id="s2">
+      <h2><span class="n">2</span>Create the Retail Portal app (the resource app) and enable XAA</h2>
+      <p class="lead">This tells Okta that the Retail Portal can be called by agents, and which scopes exist.</p>
+      <ol class="steps">
+        <li data-k="2.1"><div><b>Create the app.</b> Applications and Resources → Applications → <b>Create App Integration → OIDC - Web Application</b> (a <i>custom</i> OIDC app supports XAA).
+          <ul><li>Name: <code>Retail Portal</code>. Any placeholder redirect URI works, e.g. <code>http://localhost:3101/callback</code>.</li>
+              <li>Choose <b>Skip group assignments for now</b>, then Save.</li></ul></div></li>
+        <li data-k="2.2"><div><b>Open the XAA settings.</b> <code>Retail Portal</code> → <b>Machine Assignments</b> tab → <b>Callers</b> tile → <b>Edit</b> next to <b>Cross App Access (XAA)</b> → <b>Enable</b>.</div></li>
+        <li data-k="2.3"><div><b>Fill in the fields:</b>
+          <ul>
+            <li><b>Issuer URL:</b> <code>http://localhost:5101</code>. The base URL of the resource authorization server, which here is the <code>retail-auth</code> service.</li>
+            <li><b>Audience/tenant ID:</b> optional; leave empty (only for multi-tenant servers).</li>
+            <li><b>Scopes:</b> add the 7 scopes above, <b>one per field</b> (use <b>+ Add</b> for more).</li>
+          </ul></div></li>
+        <li data-k="2.4"><div>Click <b>Save</b>.</div></li>
+      </ol>
+    </section>
+
+    <section id="s3">
+      <h2><span class="n">3</span>Connect the agent to the Retail Portal</h2>
+      <p class="lead">This is the central policy: which agent may reach which app, with which scopes.</p>
+      <ol class="steps">
+        <li data-k="3.1"><div><b>Directory → AI Agents →</b> <code>Retail Ops Agent</code> → <b>Resource connections</b> tab → <b>Add resource connection</b>.</div></li>
+        <li data-k="3.2"><div><b>Application → Application instance:</b> select <code>Retail Portal</code>, then <b>Enable</b>.</div></li>
+        <li data-k="3.3"><div><b>Fill in:</b>
+          <ul>
+            <li><b>Resource indicator:</b> <code>http://localhost:3101</code></li>
+            <li><b>AI agent's client ID registered in this app:</b> <code>agent-at-retail</code></li>
+            <li><b>Scopes:</b> <i>Allow any scope</i>, or <i>Allow specific scopes</i>. To try governance, pick only <code>products:read orders:read</code>.</li>
+          </ul></div></li>
+        <li data-k="3.4"><div>Click <b>Add</b>.</div></li>
+      </ol>
+      <div class="callout info">This is the screen an admin uses to narrow or revoke the agent later. Change the scopes or disable the connection and the agent's tool list changes on its next exchange.</div>
+    </section>
+
+    <section id="s4">
+      <h2><span class="n">4</span>Configure the project</h2>
+      <ol class="steps">
+        <li data-k="4.1"><div><b>Create your <code>.env</code></b> from the template (PowerShell):
+          <pre><code>copy .env.example .env</code></pre></div></li>
+        <li data-k="4.2"><div><b>Fill it in:</b>
+          <pre><code>OKTA_ISSUER=https://&lt;your-org&gt;.oktapreview.com
+AGENT_CLIENT_ID=&lt;from Step 1&gt;
+AGENT_AUTH_METHOD=private_key_jwt               # key at .keys/agent-private.jwk.json
+ANTHROPIC_API_KEY=&lt;your key&gt;
+
+RETAIL_AUTH_ISSUER=http://localhost:5101        # = Step 2 Issuer URL
+RETAIL_RESOURCE=http://localhost:3101           # = Step 3 Resource indicator
+RETAIL_AGENT_CLIENT_ID=agent-at-retail          # = Step 3 client ID
+RETAIL_AGENT_CLIENT_SECRET=&lt;choose a secret&gt;</code></pre></div></li>
+        <li data-k="4.3"><div><b>Install, check and start:</b>
+          <pre><code>npm install
+npm run check:env      # checks .env, the key, and that Okta accepts the agent's key
+npm start</code></pre></div></li>
+      </ol>
+    </section>
+
+    <section id="s5">
+      <h2><span class="n">5</span>Verify</h2>
+      <ol class="steps">
+        <li data-k="5.1"><div>Open <a href="http://localhost:3000">http://localhost:3000</a> → <b>Sign in with Okta</b> (as the assigned user).</div></li>
+        <li data-k="5.2"><div>Click <b>Run XAA exchange</b>. Expect three green steps:
+          <ul><li>User session (refresh token + ID token)</li><li>Okta: refresh token → ID-JAG</li><li>Retail authorization server: ID-JAG → access token</li></ul></div></li>
+        <li data-k="5.3"><div>Expand step 2's claims. You should see header <code>typ: oauth-id-jag+jwt</code>, <code>iss</code> = your Okta org, <code>aud</code> = <code>http://localhost:5101</code>, <code>client_id</code> = <code>agent-at-retail</code>, and <code>scope</code> = what the connection allowed.</div></li>
+        <li data-k="5.4"><div>Ask <i>"Which orders are still processing?"</i> Then open <a href="http://localhost:3101">http://localhost:3101</a> → <b>Audit log</b> to see the call.</div></li>
+        <li data-k="5.5"><div><b>Test central governance.</b> In Step 3 change <b>Scopes</b> to specific ones, then click <b>Run XAA exchange</b> again. The <i>MCP tools visible</i> list should shrink.</div></li>
+      </ol>
+    </section>
+
+    <section id="fail">
+      <h2>If something fails</h2>
+      <p class="lead">The agent's trace panel shows the failing step and Okta's error.</p>
+      <div class="tablewrap"><table>
+        <tr><th>Trace shows</th><th>Check</th></tr>
+        <tr><td>Saving the linked app fails with <code>'jwks' is required when 'token_endpoint_auth_method' is 'private_key_jwt'</code></td><td>The public key isn't registered yet: do Step 1.4 first, then save the app settings</td></tr>
+        <tr><td>Step 3: <i>returned HTTP 404 (text/html) instead of OAuth metadata</i>, or "Not Found" HTML</td><td>Another program owns the auth server's port (common on Windows: a Python/Flask app on 5001 can share the port with Node, and <code>localhost</code> then reaches the wrong one). Change <code>AUTH_PORT</code> and <code>RETAIL_AUTH_ISSUER</code> to a free port (this project uses 5101), update <b>Issuer URL</b> in Okta (Step 2.3) to match, and restart. The auth server now warns at startup if the port is shared</td></tr>
+        <tr><td>Step 1: <i>Okta did not issue a refresh token</i></td><td>Step 1.5: <b>Refresh Token</b> grant enabled on the linked app; sign out and in again. (Or set <code>XAA_SUBJECT_TOKEN=id_token</code> for the older ID-token exchange.)</td></tr>
+        <tr><td>Step 2 <code>unsupported_grant_type</code> / <code>unauthorized_client</code></td><td>Agent is <b>Active</b>; the resource connection exists and is <b>Enabled</b>; the user is assigned to the agent (Step 1.6)</td></tr>
+        <tr><td>Step 2 <code>access_denied</code></td><td>Okta policy denied it: wrong user, missing assignment, or scope not allowed on the connection</td></tr>
+        <tr><td>Step 2 <code>invalid_target</code> / audience errors</td><td><b>Issuer URL</b> (Step 2.3) ≠ <code>RETAIL_AUTH_ISSUER</code>, or <b>Resource indicator</b> ≠ <code>RETAIL_RESOURCE</code></td></tr>
+        <tr><td><code>invalid_client</code> (Step 2, or at sign-in)</td><td>Okta rejected the agent's signed assertion: wrong <code>AGENT_CLIENT_ID</code>; the registered public key isn't the one in <code>.keys/</code> (compare <code>npm run show:key</code>); the <b>KID</b> shown in Okta differs from the key file's kid and <code>AGENT_KEY_ID</code> isn't set; the key isn't <b>Activated/Enabled</b>; or you re-ran <code>gen:key --force</code> without re-registering. <code>npm run check:env</code> tests exactly this</td></tr>
+        <tr><td>Step 2 <code>invalid_scope</code></td><td>A requested scope isn't defined on the resource app (Step 2.3) or isn't allowed on the connection</td></tr>
+        <tr><td>Step 2 <code>invalid_grant</code></td><td>Refresh token expired or revoked: sign in again</td></tr>
+        <tr><td>Step 3 <i>client_id does not match</i></td><td><b>AI agent's client ID registered in this app</b> ≠ <code>RETAIL_AGENT_CLIENT_ID</code></td></tr>
+        <tr><td>Step 3 <i>signature validation failed</i></td><td><code>OKTA_ISSUER</code> must be the same org the ID-JAG came from</td></tr>
+        <tr><td>Agent sees fewer tools than expected</td><td>Okta granted fewer scopes: governance working as intended</td></tr>
+        <tr><td>Portal says <code>forbidden_for_role</code></td><td>Okta allowed it but the user's portal role doesn't. Set <code>PORTAL_USER_ROLES</code> (see below)</td></tr>
+      </table></div>
+    </section>
+
+    <section id="extras">
+      <h2>Optional extras</h2>
+      <h3>Using a client secret instead (fallback)</h3>
+      <p>Only if your app is set to <b>Client secret</b> (linked app → General → Client Credentials → Edit → <i>Client secret</i>): generate a secret under the agent's <b>Client registration</b>, then set <code>AGENT_AUTH_METHOD=client_secret</code> and <code>AGENT_CLIENT_SECRET=...</code> in <code>.env</code>.</p>
+      <h3>Portal roles</h3>
+      <p>The portal maps the ID-JAG's <code>email</code> claim, or else its <code>sub</code> (an Okta ID like <code>00u...</code>), to a role. Find who the portal saw at
+         <a href="http://localhost:3101">http://localhost:3101</a> → <b>Users &amp; roles</b>, then set for example:</p>
+      <pre><code>PORTAL_USER_ROLES=alice@example.com=manager,00u1abcdEXAMPLE=viewer
+PORTAL_DEFAULT_ROLE=support</code></pre>
+    </section>
+
+    <section id="open">
+      <h2>Open questions</h2>
+      <p class="lead">These couldn't be confirmed from Okta's docs.</p>
+      <div class="callout warn"><b class="k">Can Okta reach <code>localhost</code>?</b> The help page says Okta "uses [the Issuer URL] for token verification requests". If Step 2 fails with target/audience errors even though the values match, <code>localhost</code> may be unreachable from Okta. Expose <code>retail-auth</code> through an HTTPS tunnel (ngrok, Cloudflare Tunnel), then use the tunnel URL for both the Step 2 <b>Issuer URL</b> and <code>RETAIL_AUTH_ISSUER</code>. The auth server also answers <code>/.well-known/openid-configuration</code>, in case Okta looks for that.</div>
+      <ul>
+        <li>Which authorization server mints the ID-JAG isn't stated on the help pages. Okta's blog says the <b>org</b> authorization server, so <code>OKTA_ISSUER</code> is the plain org URL.</li>
+        <li>Whether <code>email</code> appears in the ID-JAG (use <code>sub</code> in <code>PORTAL_USER_ROLES</code> if not).</li>
+        <li>Whether the optional <code>resource</code> parameter is accepted: set <code>XAA_SEND_RESOURCE=false</code> to drop it.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <b>Sources (Okta documentation)</b>
+    <ul>
+      <li><a href="https://help.okta.com/oie/en-us/Content/Topics/Apps/apps-cross-app-access.htm">Configure Cross App Access</a></li>
+      <li><a href="https://help.okta.com/oie/en-us/Content/Topics/Apps/apps-config-requesting-apps.htm">Configure the AI agent (requesting app)</a></li>
+      <li><a href="https://help.okta.com/oie/en-us/Content/Topics/Apps/apps-config-resource-app.htm">Configure the resource app</a></li>
+      <li><a href="https://help.okta.com/oie/en-us/Content/Topics/Apps/apps-config-xaa-connection.htm">Configure the Cross App Access connection</a></li>
+      <li><a href="https://developer.okta.com/blog/2026/08/21/xaa-oidc-requesting">Add Cross App Access to Your OIDC Requesting Application</a></li>
+    </ul>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var KEY = 'okta-xaa-setup-checklist-v1';
+  var store = {};
+  try { store = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { store = {}; }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) { /* storage unavailable */ } }
+
+  var items = Array.prototype.slice.call(document.querySelectorAll('ol.steps > li[data-k]'));
+  function refresh() {
+    var done = items.filter(function (li) { return li.classList.contains('done'); }).length;
+    document.getElementById('pbar').style.width = (items.length ? (done / items.length) * 100 : 0) + '%';
+    document.getElementById('ptext').textContent = done + ' of ' + items.length + ' steps done';
+  }
+  items.forEach(function (li) {
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.setAttribute('aria-label', 'Mark step ' + li.dataset.k + ' as done');
+    cb.checked = !!store[li.dataset.k];
+    li.classList.toggle('done', cb.checked);
+    cb.addEventListener('change', function () {
+      store[li.dataset.k] = cb.checked;
+      li.classList.toggle('done', cb.checked);
+      save(); refresh();
+    });
+    li.insertBefore(cb, li.firstChild);
+  });
+  refresh();
+  document.getElementById('reset').addEventListener('click', function () {
+    store = {}; save();
+    items.forEach(function (li) { li.classList.remove('done'); li.firstChild.checked = false; });
+    refresh();
+  });
+
+  // copy buttons
+  Array.prototype.forEach.call(document.querySelectorAll('pre'), function (pre) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'copy'; b.textContent = 'Copy';
+    b.addEventListener('click', function () {
+      var text = pre.querySelector('code').innerText;
+      var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1400); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () {});
+      else { var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); done(); } catch (e) {} t.remove(); }
+    });
+    pre.appendChild(b);
+  });
+
+  // theme toggle (remembered when storage works)
+  var root = document.documentElement;
+  try { var t = localStorage.getItem('okta-xaa-theme'); if (t) root.setAttribute('data-theme', t); } catch (e) {}
+  document.getElementById('theme').addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+    var next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('okta-xaa-theme', next); } catch (e) {}
+  });
+
+  // highlight current section in the contents
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+  var map = {};
+  links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { links.forEach(function (l) { l.classList.remove('on'); }); map[en.target.id].classList.add('on'); }
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    Object.keys(map).forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
+  }
+})();
+</script>
+</body>
+</html>

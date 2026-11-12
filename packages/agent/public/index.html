@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HPE Ops Agent</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark">HPE</span> <span id="agentName">Ops Agent</span> <small>Okta Cross App Access demo</small></div>
+  <div class="who" id="who"></div>
+</header>
+
+<div id="signedout" class="hero hidden">
+  <h1>Governed AI access to the HPE Order Portal</h1>
+  <p>Sign in with Okta. The agent then uses <strong>Cross App Access (XAA)</strong> to get an HPE Order Portal token on your behalf —
+     no consent popups, and your admin controls exactly which tools the agent can use.</p>
+  <a class="btn primary" href="/login">Sign in with Okta</a>
+  <p class="fine" id="cfgwarn"></p>
+</div>
+
+<div id="app" class="layout hidden">
+  <section class="chat">
+    <div id="log" class="log" aria-live="polite"></div>
+    <div id="chips" class="chips"></div>
+    <form id="form" class="composer">
+      <input id="input" autocomplete="off" placeholder="Ask about orders, stock, RMAs…" maxlength="4000" />
+      <button class="btn primary" id="send" type="submit">Send</button>
+    </form>
+  </section>
+
+  <aside class="xaa">
+    <div class="card">
+      <div class="row"><h2>Cross App Access</h2><button class="btn small" id="connect">Run XAA exchange</button></div>
+      <div id="xstatus" class="muted">Not connected yet. Sending a message (or the button) runs the exchange.</div>
+      <h3>Scopes granted by Okta</h3>
+      <div id="scopes" class="chips2"><span class="muted">–</span></div>
+      <h3>MCP tools visible to the agent</h3>
+      <div id="tools" class="chips2"><span class="muted">–</span></div>
+    </div>
+    <div class="card">
+      <h2>Flow trace</h2>
+      <div id="trace"><span class="muted">The ID token → ID-JAG → access token steps appear here.</span></div>
+    </div>
+    <button class="btn small ghost" id="reset">Clear conversation</button>
+  </aside>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

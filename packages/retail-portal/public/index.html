@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HPE Order Portal Console</title>
+<style>
+  :root { --bg:#f4f6f5; --card:#fff; --ink:#16211d; --mute:#5d6b66; --line:#dfe6e3; --brand:#01a982; --brand-ink:#04140f; --link:#00755a; --ok:#067647; --okbg:#ecfdf3; --bad:#b42318; --badbg:#fef3f2; --warn:#b54708; --warnbg:#fffaeb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0e1412; --card:#151d1a; --ink:#e6eeea; --mute:#93a39d; --line:#26332e; --brand:#2fd3a7; --brand-ink:#04140f; --link:#4fe0b8; --ok:#6ce9a6; --okbg:#0b2a1b; --bad:#fda29b; --badbg:#2e1311; --warn:#fec84b; --warnbg:#2b2008; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; background:var(--card); border-bottom:1px solid var(--line); border-top:4px solid var(--brand); flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  .mark { background:var(--brand); color:var(--brand-ink); font-weight:800; letter-spacing:.04em; padding:2px 8px; border-radius:4px; font-size:13px; }
+  header .tag { color:var(--mute); font-size:12px; }
+  nav { display:flex; gap:4px; padding:10px 20px 0; flex-wrap:wrap; }
+  nav button { border:0; background:transparent; color:var(--mute); padding:8px 14px; border-radius:8px 8px 0 0; font:inherit; cursor:pointer; }
+  nav button.active { background:var(--card); color:var(--ink); font-weight:600; border:1px solid var(--line); border-bottom-color:var(--card); box-shadow:inset 0 3px 0 var(--brand); }
+  main { margin:0 20px 8px; background:var(--card); border:1px solid var(--line); border-radius:0 10px 10px 10px; padding:16px; overflow-x:auto; }
+  .note { margin:0 20px 20px; color:var(--mute); font-size:12px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
+  td.wrap { white-space:normal; }
+  th { color:var(--mute); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; font-weight:600; }
+  .allow, .delivered, .approved { color:var(--ok); background:var(--okbg); }
+  .deny, .cancelled, .pending_manager_approval { color:var(--bad); background:var(--badbg); }
+  .error, .processing, .shipped, .returned { color:var(--warn); background:var(--warnbg); }
+  .muted { color:var(--mute); }
+  code { font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .hint { color:var(--mute); margin:0 0 12px; }
+  .zero { color:var(--bad); font-weight:600; }
+  a { color:var(--link); }
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">HPE</span>
+  <h1>Order Portal Console</h1>
+  <span class="tag">XAA resource app · demo view (localhost only) · auto-refreshing</span>
+</header>
+<nav id="tabs"></nav>
+<main id="view"></main>
+<p class="note">Sample data only. Accounts, SKUs, prices and stock are fictional demo values and do not reflect real HPE pricing or inventory.</p>
+<script>
+const TABS = ['Audit log','Orders','Inventory','RMAs','Users & roles'];
+let tab = 'Audit log', state = null, audit = [];
+
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pill = (v) => `<span class="pill ${esc(v)}">${esc(v)}</span>`;
+const fmt = (iso) => iso ? new Date(iso).toLocaleString() : '';
+const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function renderTabs() {
+  const nav = document.getElementById('tabs');
+  nav.innerHTML = TABS.map(t => `<button class="${t===tab?'active':''}" data-t="${esc(t)}">${esc(t)}</button>`).join('');
+  nav.querySelectorAll('button').forEach(b => b.onclick = () => { tab = b.dataset.t; renderTabs(); render(); });
+}
+
+function render() {
+  const v = document.getElementById('view');
+  if (!state) { v.textContent = 'Loading…'; return; }
+  if (tab === 'Audit log') {
+    v.innerHTML = `<p class="hint">Every agent call made through XAA-issued tokens. Okta controls which scopes an agent gets; this portal caps them further by the user's role.</p>
+    <table><tr><th>Time</th><th>Via</th><th>User</th><th>Role</th><th>Agent (client)</th><th>Tool</th><th>Scope</th><th>Decision</th><th>Reason</th><th>Args</th></tr>` +
+    ([...audit].reverse().map(a => `<tr><td>${fmt(a.ts)}</td><td>${esc(a.via)}</td><td>${esc(a.user)}</td><td>${esc(a.role)}</td><td><code>${esc(a.clientId)}</code></td><td><code>${esc(a.tool)}</code></td><td><code>${esc(a.scope)}</code></td><td>${pill(a.decision)}</td><td class="wrap">${esc(a.reason)}</td><td class="wrap"><code>${esc(a.args ? JSON.stringify(a.args) : '')}</code></td></tr>`).join('') || `<tr><td colspan="10" class="muted">No agent calls yet. Sign in to the agent app and ask it something.</td></tr>`) + `</table>`;
+  } else if (tab === 'Orders') {
+    v.innerHTML = `<table><tr><th>Order</th><th>Account</th><th>Status</th><th>Channel</th><th>Placed</th><th>Delivered</th><th>Items</th><th>Total</th><th>Notes</th></tr>` +
+    state.orders.map(o => `<tr><td><code>${esc(o.id)}</code></td><td>${esc(o.customer)}</td><td>${pill(o.status)}</td><td>${esc(o.channel)}</td><td>${fmt(o.placedAt)}</td><td>${fmt(o.deliveredAt)}</td><td class="wrap">${o.items.map(l=>`${esc(l.qty)}× ${esc(l.sku)}`).join(', ')}</td><td>${money(o.total)}</td><td class="wrap">${esc(o.notes.join('; '))}</td></tr>`).join('') + `</table>`;
+  } else if (tab === 'Inventory') {
+    const locs = Object.keys(state.inventory[0]?.stock ?? {});
+    v.innerHTML = `<table><tr><th>SKU</th><th>Product</th><th>List price</th>${locs.map(l=>`<th>${esc(l)}</th>`).join('')}</tr>` +
+    state.inventory.map(i => `<tr><td><code>${esc(i.sku)}</code></td><td class="wrap">${esc(i.name)}</td><td>${money(i.price)}</td>${locs.map(l=>`<td class="${i.stock[l]===0?'zero':''}">${esc(i.stock[l])}</td>`).join('')}</tr>`).join('') + `</table>`;
+  } else if (tab === 'RMAs') {
+    v.innerHTML = `<table><tr><th>RMA</th><th>Order</th><th>SKU</th><th>Qty</th><th>Credit</th><th>Status</th><th>Created by</th><th>Reason</th></tr>` +
+    (state.returns.map(r => `<tr><td><code>${esc(r.id)}</code></td><td><code>${esc(r.orderId)}</code></td><td>${esc(r.sku)}</td><td>${esc(r.qty)}</td><td>${money(r.refundAmount)}</td><td>${pill(r.status)}</td><td>${esc(r.createdBy)}</td><td class="wrap">${esc(r.reason)}</td></tr>`).join('') || `<tr><td colspan="8" class="muted">No RMAs yet.</td></tr>`) + `</table>`;
+  } else {
+    v.innerHTML = `<p class="hint">Users are mapped by the <code>email</code> claim in the XAA access token (or provisioned just-in-time with the default role). Set <code>PORTAL_USER_ROLES</code> in <code>.env</code> to assign roles.</p>
+    <h3>Seen via XAA</h3><table><tr><th>Email / sub</th><th>Role</th><th>First seen</th><th>Last seen</th></tr>` +
+    (state.users.map(u => `<tr><td>${esc(u.email ?? u.sub)}</td><td>${esc(u.role)}</td><td>${fmt(u.firstSeen)}</td><td>${fmt(u.lastSeen)}</td></tr>`).join('') || `<tr><td colspan="4" class="muted">No users yet.</td></tr>`) + `</table>
+    <h3>Role → maximum scopes</h3><table><tr><th>Role</th><th>Scopes</th></tr>` +
+    Object.entries(state.roles).map(([r, s]) => `<tr><td>${esc(r)}</td><td class="wrap">${s.map(x=>`<code>${esc(x)}</code>`).join(' ')}</td></tr>`).join('') + `</table>`;
+  }
+}
+
+async function poll() {
+  try {
+    const [s, a] = await Promise.all([fetch('/admin/api/state'), fetch('/admin/api/audit')]);
+    if (s.ok) state = await s.json();
+    if (a.ok) audit = await a.json();
+    render();
+  } catch { /* server restarting */ }
+}
+renderTabs(); poll(); setInterval(poll, 2000);
+</script>
+</body>
+</html>
