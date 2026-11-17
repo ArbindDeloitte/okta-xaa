@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HPE Ops Agent: Agent Gateway test</title>
+<link rel="stylesheet" href="/style.css" />
+<style>main{max-width:760px;margin:32px auto;padding:0 16px}pre{background:#f1f3f5;padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap;word-break:break-word}.ok{color:#047857}.bad{color:#b91c1c}ol li{margin:6px 0}</style>
+</head>
+<body>
+<header><div class="brand"><span class="mark">HPE</span> Ops Agent <small>Okta Agent Gateway test</small></div><div class="who"><a href="/">Back to the agent</a></div></header>
+<main>
+  <h2>Call the portal through Okta Agent Gateway</h2>
+  <p class="muted">Instead of doing the XAA exchange itself, the agent signs in to the gateway's Okta authorization server and calls the gateway URL.
+     The gateway swaps that token for the portal credential and calls the HPE Order Portal for us.</p>
+  <ol id="steps"><li>Loading…</li></ol>
+  <p id="actions"></p>
+  <h3>Result</h3>
+  <pre id="out">(nothing yet)</pre>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+async function status() {
+  const s = await (await fetch('/api/gateway/status')).json();
+  const li = (ok, t) => `<li class="${ok ? 'ok' : ''}">${ok ? '✔' : '○'} ${t}</li>`;
+  $('steps').innerHTML =
+    li(s.enabled, s.enabled ? 'Gateway configured: <code>' + s.url + '</code>' : 'Set <code>GATEWAY_MCP_URL</code> in .env and restart') +
+    li(s.mainSignedIn, s.mainSignedIn ? 'Signed in to the agent' : 'Sign in to the agent first (<a href="/login">Sign in with Okta</a>)') +
+    li(s.gatewaySignedIn, s.gatewaySignedIn ? 'Signed in to the gateway' : 'Not signed in to the gateway yet');
+  $('actions').innerHTML = s.enabled && s.mainSignedIn
+    ? '<a class="btn" href="/gateway/login">Sign in to the gateway</a> <button class="btn primary" id="run" ' + (s.gatewaySignedIn ? '' : 'disabled') + '>List tools + call list_orders via gateway</button>'
+    : '';
+  const run = $('run');
+  if (run) run.onclick = async () => {
+    $('out').textContent = 'Calling the gateway…';
+    const r = await fetch('/api/gateway/test', { method: 'POST' });
+    const j = await r.json();
+    $('out').textContent = JSON.stringify(j, null, 2);
+    // Brokered consent: the gateway asks the user to connect their account once, via an Okta link.
+    document.querySelectorAll('.connect').forEach((n) => n.remove());
+    const m = /https:\/\/[^\s"]+/.exec(j.call && j.call.preview ? j.call.preview : '');
+    if (m) {
+      const u = new URL(m[0]);
+      if (/(^|\.)okta(preview)?\.com$/.test(u.hostname)) {
+        const p = document.createElement('p');
+        p.className = 'connect';
+        const a = document.createElement('a');
+        a.className = 'btn primary';
+        a.href = u.href;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Connect your account (one time), then run the test again';
+        p.appendChild(a);
+        $('out').before(p);
+      }
+    }
+  };
+}
+status();
+</script>
+</body>
+</html>

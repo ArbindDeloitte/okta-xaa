@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>On-Behalf-Of (OBO) Agent</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --card:#ffffff; --ink:#18212b; --mute:#5f6b7a; --line:#e2e6ec;
+    --brand:#0a58e6; --brand-soft:#e8f0fe; --code-bg:#0f1720; --code-ink:#e6edf3;
+    --ok:#067647; --ok-bg:#ecfdf3; --warn:#b54708; --warn-bg:#fffaeb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0e131a; --card:#161d26; --ink:#e6ebf2; --mute:#98a3b3; --line:#27313d;
+      --brand:#7aa7ff; --brand-soft:#17233b; --code-bg:#0a0f15; --code-ink:#e6edf3;
+      --ok:#6ce9a6; --ok-bg:#0c2a1c; --warn:#fec84b; --warn-bg:#2b2108;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0e131a; --card:#161d26; --ink:#e6ebf2; --mute:#98a3b3; --line:#27313d;
+    --brand:#7aa7ff; --brand-soft:#17233b; --code-bg:#0a0f15; --code-ink:#e6edf3;
+    --ok:#6ce9a6; --ok-bg:#0c2a1c; --warn:#fec84b; --warn-bg:#2b2108;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  a { color:var(--brand); }
+  code { font:0.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--brand-soft); padding:1px 6px; border-radius:5px; word-break:break-word; }
+  pre { position:relative; margin:12px 0; padding:14px 16px; background:var(--code-bg); color:var(--code-ink); border-radius:10px; overflow-x:auto; font:13.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre code { background:none; padding:0; color:inherit; font:inherit; word-break:normal; }
+  .copy { position:absolute; top:8px; right:8px; border:1px solid #3a4655; background:#1b2430; color:#c9d4e0; border-radius:6px; font:12px system-ui; padding:3px 9px; cursor:pointer; }
+  .copy:hover { border-color:#7aa7ff; }
+
+  .shell { max-width:1120px; margin:0 auto; padding:0 16px 64px; display:grid; grid-template-columns:230px minmax(0,1fr); gap:32px; }
+  @media (max-width:880px) { .shell { grid-template-columns:1fr; } nav.toc { position:static; } }
+  header.hero { grid-column:1 / -1; padding:36px 0 8px; }
+  .hero h1 { margin:0 0 6px; font-size:clamp(26px,4vw,36px); line-height:1.2; }
+  .hero p { margin:0; color:var(--mute); max-width:72ch; }
+  .tools { display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; }
+  .btn { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; padding:6px 12px; font:inherit; font-size:14px; cursor:pointer; }
+  .btn:hover { border-color:var(--brand); }
+
+  nav.toc { position:sticky; top:20px; align-self:start; font-size:14px; }
+  nav.toc ol { list-style:none; margin:0; padding:0; border-left:2px solid var(--line); }
+  nav.toc a { display:block; padding:5px 12px; color:var(--mute); text-decoration:none; border-left:2px solid transparent; margin-left:-2px; }
+  nav.toc a:hover, nav.toc a.on { color:var(--brand); border-left-color:var(--brand); }
+
+  main section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px 24px; margin:0 0 18px; }
+  main h2 { margin:0 0 10px; font-size:21px; line-height:1.3; }
+  main h3 { margin:18px 0 6px; font-size:16px; }
+  main p { margin:8px 0; }
+  main ul, main ol { margin:8px 0; padding-left:22px; }
+  main li { margin:4px 0; }
+  .note { margin:12px 0; padding:10px 14px; border-radius:10px; background:var(--warn-bg); color:var(--warn); border:1px solid var(--line); font-size:15px; }
+  .good { background:var(--ok-bg); color:var(--ok); }
+
+  .tablewrap { overflow-x:auto; margin:12px 0; }
+  table { border-collapse:collapse; width:100%; font-size:14.5px; min-width:560px; }
+  th, td { text-align:left; vertical-align:top; padding:8px 12px; border-bottom:1px solid var(--line); }
+  th { color:var(--mute); font-weight:600; background:var(--bg); }
+  td:first-child { font-weight:600; white-space:nowrap; }
+
+  .steps { counter-reset:s; list-style:none; padding:0; }
+  .steps > li { counter-increment:s; position:relative; padding:4px 0 10px 40px; }
+  .steps > li::before { content:counter(s); position:absolute; left:0; top:2px; width:26px; height:26px; border-radius:50%; background:var(--brand-soft); color:var(--brand); font-weight:700; font-size:14px; display:grid; place-items:center; }
+  .steps ul { margin:4px 0 0; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="hero">
+    <h1>On-behalf-of (OBO) agent app</h1>
+    <p>A second agent app, <code>packages/agent-obo</code>, that talks to the <strong>same portal and the same data</strong> as the XAA agent but
+       gets its portal token through Okta's OAuth 2.0 <strong>on-behalf-of token exchange</strong> (RFC 8693) instead of Cross App Access.
+       It reuses the XAA agent's chat engine, LLM settings and web page; only the way it gets a token differs.</p>
+    <div class="tools"><button class="btn" id="theme" type="button">Toggle dark mode</button></div>
+  </header>
+
+  <nav class="toc" aria-label="Sections">
+    <ol>
+      <li><a href="#compare">XAA vs OBO</a></li>
+      <li><a href="#flow">How it flows</a></li>
+      <li><a href="#okta">Okta setup</a></li>
+      <li><a href="#env">.env</a></li>
+      <li><a href="#run">Run it</a></li>
+      <li><a href="#roles">Roles and scopes</a></li>
+      <li><a href="#notes">Things to know</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section id="compare">
+      <h2>XAA vs OBO</h2>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th></th><th>Direct XAA (<code>packages/agent</code>, port 3000)</th><th>OBO (<code>packages/agent-obo</code>, port 3200)</th></tr></thead>
+        <tbody>
+          <tr><td>User signs in at</td><td>Okta org authorization server</td><td>an Okta <strong>custom</strong> authorization server (the "sign-in server")</td></tr>
+          <tr><td>What the agent exchanges</td><td>refresh token → ID-JAG</td><td>the user's <strong>access token</strong></td></tr>
+          <tr><td>Who issues the portal token</td><td>our retail auth server (after Okta's ID-JAG)</td><td><strong>Okta itself</strong>, from a second custom server (the "exchange server")</td></tr>
+          <tr><td>Agent identity</td><td>first-class AI agent with a connection</td><td>an <strong>API Services app</strong> (a service app)</td></tr>
+          <tr><td>Scopes limited by</td><td>the agent's connection in Okta</td><td>the custom server's access-policy rule</td></tr>
+          <tr><td>Token names the agent</td><td><code>client_id</code></td><td><code>cid</code> and <code>act.sub</code></td></tr>
+          <tr><td>Retail auth server needed</td><td>yes</td><td>no</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Okta's own guidance favours XAA for AI agents, because a service app that exchanges user tokens is easier to over-grant.
+        This app exists so you can show the two side by side.</p>
+    </section>
+
+    <section id="flow">
+      <h2>How it flows</h2>
+<pre><code>browser ──sign in──▶ OBO app ──code+PKCE──▶ SIGN-IN server (custom AS #1)   → the user's own access token
+                       │
+                       ├─ RFC 8693 token exchange (service app, Basic auth) ──▶ EXCHANGE server (custom AS #2, trusts #1)
+                       │                                                         → portal token: sub = user, act = agent
+                       └─ MCP call with that token ──▶ HPE Order Portal (trusts only server #2; applies the user's role)</code></pre>
+      <p>Two servers keep the roles apart: the sign-in server only ever hands out tokens that mean "this person is signed in", and the
+         portal refuses them. Only the exchange server can mint a token the portal accepts, and only for the service app.
+         One server also works: leave <code>OBO_LOGIN_ISSUER</code> empty and <code>OBO_ISSUER</code> does both.</p>
+    </section>
+
+    <section id="okta">
+      <h2>Okta setup (once)</h2>
+      <p>Everything below is under <strong>Security → API → Authorization Servers</strong> unless it says Applications.</p>
+      <ol class="steps">
+        <li><strong>Sign-in server</strong> (custom AS #1, e.g. <code>default</code> or a new one called "HPE users").
+          <ul>
+            <li>Note its <strong>Issuer URL</strong> → <code>OBO_LOGIN_ISSUER</code>.</li>
+            <li>It needs no custom scopes. Add an <strong>access policy</strong> assigned to the login app (step 3) with a rule that allows the <strong>Authorization Code</strong> grant.</li>
+          </ul></li>
+        <li><strong>Exchange server</strong> (custom AS #2, a new one called "HPE order portal").
+          <ul>
+            <li><strong>Issuer URL</strong> → <code>OBO_ISSUER</code>. <strong>Audience</strong> (for example <code>api://hpe-order-portal</code>) → <code>OBO_AUDIENCE</code>.</li>
+            <li><strong>Scopes:</strong> add the seven portal scopes: <code>products:read</code>, <code>inventory:read</code>, <code>orders:read</code>, <code>customers:read</code>, <code>orders:write</code>, <code>returns:read</code>, <code>returns:write</code>.</li>
+            <li><strong>Settings → Trusted servers → Add:</strong> pick the sign-in server (#1). This is what lets #2 accept #1's tokens as the subject.</li>
+            <li><strong>Access policy</strong> assigned to the service app (step 4) with a rule that allows the <strong>Token Exchange</strong> grant and the scopes you want available. They are the most any user can get through this agent.</li>
+          </ul></li>
+        <li><strong>Login app</strong> (Applications → Create App Integration → OIDC → <strong>Native</strong>, or Web).
+          <ul>
+            <li>Grant types: Authorization Code (add Refresh Token if you set <code>OBO_OFFLINE_ACCESS=true</code>).</li>
+            <li>Sign-in redirect URI: <code>http://localhost:3200/callback</code></li>
+            <li>Assign the users who may sign in. Client ID → <code>OBO_LOGIN_CLIENT_ID</code> (a Web app also needs its secret in <code>OBO_LOGIN_CLIENT_SECRET</code>).</li>
+          </ul></li>
+        <li><strong>Service app</strong> (Applications → Create App Integration → <strong>API Services</strong>).
+          <ul>
+            <li>Under General Settings → Advanced, enable the grant type <strong>Token Exchange</strong>.</li>
+            <li>Client ID and secret → <code>OBO_SERVICE_CLIENT_ID</code>, <code>OBO_SERVICE_CLIENT_SECRET</code>.</li>
+          </ul></li>
+      </ol>
+    </section>
+
+    <section id="env">
+      <h2><code>.env</code></h2>
+      <p>Fill the <code>OBO_*</code> block from <code>.env.example</code>:</p>
+<pre><code>OBO_LOGIN_ISSUER=https://&lt;org&gt;.okta.com/oauth2/&lt;sign-in-server-id&gt;
+OBO_ISSUER=https://&lt;org&gt;.okta.com/oauth2/&lt;exchange-server-id&gt;
+OBO_AUDIENCE=api://hpe-order-portal
+OBO_LOGIN_CLIENT_ID=&lt;login app client id&gt;
+OBO_SERVICE_CLIENT_ID=&lt;service app client id&gt;
+OBO_SERVICE_CLIENT_SECRET=&lt;type this into .env yourself; never commit it&gt;</code></pre>
+      <p>Restart the portal too: it reads <code>OBO_ISSUER</code> and <code>OBO_AUDIENCE</code> and from then accepts the exchange server's
+         tokens as well as the retail auth server's. It does not trust the sign-in server.</p>
+    </section>
+
+    <section id="run">
+      <h2>Run it</h2>
+<pre><code>npm run start:obo     # OBO agent + portal      (the retail auth server is not needed)
+npm run start:all     # XAA agent + OBO agent + auth server + portal</code></pre>
+      <p>Open <code>http://localhost:3200</code>, sign in, click <strong>Run OBO exchange</strong>. The trace shows the three steps: the user's token,
+         the exchange (with the <code>act</code> claim naming the service app), and the portal's verdict (role, effective scopes, acting agent).</p>
+    </section>
+
+    <section id="roles">
+      <h2>How roles and scopes apply</h2>
+      <ul>
+        <li><strong>Okta's policy</strong> decides which scopes the exchanged token may carry. If the rule allows only some of the requested ones and
+            Okta answers <code>invalid_scope</code> naming the refused scopes, the app retries with the rest and the trace says so. If Okta denies the
+            whole request (<code>access_denied</code>, "Policy evaluation failed"), the error is shown with a hint; narrow <code>OBO_SCOPES</code> to what the rule allows.</li>
+        <li><strong>The user's role</strong> still applies in the portal: Okta does not know our roles, so the portal reads <code>PORTAL_USER_ROLES</code>
+            (by the user's <code>00u…</code> id or email) and caps the token's scopes. Viewers see only the read tools. One entry covers every path.</li>
+        <li><strong>Audit.</strong> The portal's audit log records the user, the role, the calling app (<code>cid</code>) and the <strong>actor</strong> (<code>act.sub</code>).</li>
+      </ul>
+    </section>
+
+    <section id="notes">
+      <h2>Things to know</h2>
+      <ul>
+        <li>The portal never trusts an unverified token: signature (Okta's keys at <code>&lt;issuer&gt;/v1/keys</code>), issuer, audience and expiry are checked, and the tokens of other issuers are refused.</li>
+        <li>The exchanged token's audience is the exchange server's audience, so <code>OBO_AUDIENCE</code> must be what you configured there.</li>
+        <li>The exchange request goes to the <strong>exchange</strong> server's <code>/v1/token</code>, with the user's token from the sign-in server as the subject.
+            If Okta rejects the subject token, check <strong>Trusted servers</strong> first; the error message says so.</li>
+        <li>The service app has no refresh token. The user's own access token (default lifetime 1 hour) is what expires: the app then asks for a new sign-in,
+            or renews it silently when <code>OBO_OFFLINE_ACCESS=true</code>.</li>
+        <li>Okta's pages leave a few details open (token signing <code>typ</code>, whether other subject token types work). This app sends only what the guide shows:
+            <code>grant_type</code>, <code>subject_token</code>, <code>subject_token_type</code>, <code>scope</code>, <code>audience</code>, with HTTP Basic client auth.</li>
+      </ul>
+      <p class="note good"><code>npm run test:obo</code> tests all of this against a mock Okta with two custom servers (37 checks). It has not been run against a real org.</p>
+    </section>
+  </main>
+</div>
+
+<script>
+  // copy buttons on code blocks
+  document.querySelectorAll('pre').forEach((pre) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'copy'; b.textContent = 'Copy';
+    b.onclick = async () => {
+      try { await navigator.clipboard.writeText(pre.innerText.replace(/\nCopy$/, '')); b.textContent = 'Copied'; }
+      catch { b.textContent = 'Press Ctrl+C'; }
+      setTimeout(() => (b.textContent = 'Copy'), 1500);
+    };
+    pre.appendChild(b);
+  });
+  // highlight the section in view
+  const links = [...document.querySelectorAll('nav.toc a')];
+  const byId = new Map(links.map((a) => [a.getAttribute('href').slice(1), a]));
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { links.forEach((a) => a.classList.remove('on')); byId.get(e.target.id)?.classList.add('on'); } });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  document.querySelectorAll('main section').forEach((s) => io.observe(s));
+  // theme toggle (remembered when the browser allows it)
+  const root = document.documentElement;
+  try { const t = localStorage.getItem('docTheme'); if (t) root.dataset.theme = t; } catch {}
+  document.getElementById('theme').onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('docTheme', root.dataset.theme); } catch {}
+  };
+</script>
+</body>
+</html>

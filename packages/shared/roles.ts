@@ -38,6 +38,11 @@ function loadOverrides(): Map<string, Role> {
   return overrides;
 }
 
+/** People listed in PORTAL_USER_ROLES (used by the demo sign-in page of the authorization-code flow). */
+export function knownUsers(): { id: string; role: Role }[] {
+  return [...loadOverrides()].map(([id, role]) => ({ id, role }));
+}
+
 export function defaultRole(): Role {
   const r = process.env.PORTAL_DEFAULT_ROLE?.trim();
   return r === 'viewer' || r === 'manager' ? r : 'support';

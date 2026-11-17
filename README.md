@@ -1,4 +1,6 @@
 # HPE Ops Agent: Okta Cross App Access (XAA) demo
+## npm run start:obo
+
 
 An AI agent helps HPE order-desk and support staff look up sales orders and enterprise accounts, check hardware stock and file RMAs by calling an
 **HPE Order Portal** over **MCP**. Access is **centrally governed by Okta** using Cross App Access

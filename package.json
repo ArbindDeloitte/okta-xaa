@@ -11,15 +11,21 @@
     "dev:agent": "npm run dev -w @xaa/agent",
     "dev:agent-limited": "npm run dev:limited -w @xaa/agent",
     "start:both": "concurrently -k -n agent,limited,auth,portal -c cyan,yellow,magenta,green \"npm:dev:agent\" \"npm:dev:agent-limited\" \"npm:dev:auth\" \"npm:dev:portal\"",
+    "dev:agent-obo": "npm run dev -w @xaa/agent-obo",
+    "start:obo": "concurrently -k -n obo,portal -c blue,green \"npm:dev:agent-obo\" \"npm:dev:portal\"",
+    "start:all": "concurrently -k -n agent,obo,auth,portal -c cyan,blue,magenta,green \"npm:dev:agent\" \"npm:dev:agent-obo\" \"npm:dev:auth\" \"npm:dev:portal\"",
     "dev:auth": "npm run dev -w @xaa/retail-auth",
     "dev:portal": "npm run dev -w @xaa/retail-portal",
     "gen:key": "tsx scripts/gen-agent-key.ts",
     "show:key": "tsx scripts/gen-agent-key.ts --public",
-    "typecheck": "tsc -p packages/agent --noEmit && tsc -p packages/retail-auth --noEmit && tsc -p packages/retail-portal --noEmit",
+    "typecheck": "tsc -p packages/agent --noEmit && tsc -p packages/agent-obo --noEmit && tsc -p packages/retail-auth --noEmit && tsc -p packages/retail-portal --noEmit",
     "check:env": "tsx scripts/check-env.ts",
     "check:aws": "tsx scripts/aws-check.ts",
     "list:models": "tsx scripts/list-models.ts",
-    "test:e2e": "tsx scripts/e2e.ts"
+    "test:e2e": "tsx scripts/e2e.ts",
+    "test:gateway": "tsx scripts/e2e-gateway.ts",
+    "test:gateway-okta": "tsx scripts/e2e-gateway-okta.ts",
+    "test:obo": "tsx scripts/e2e-obo.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

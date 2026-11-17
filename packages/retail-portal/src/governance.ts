@@ -27,6 +27,8 @@ export type Principal = {
   sub: string;
   email?: string;
   clientId: string;
+  /** The agent acting for the user, when the token carries an `act` claim (Okta on-behalf-of exchange). */
+  actor?: string;
   jti?: string;
   role: Role;
   /** Scopes carried by the access token (what Okta granted through XAA). */
@@ -66,6 +68,7 @@ export function buildPrincipal(claims: {
   sub: string;
   email?: string;
   client_id: string;
+  actor?: string;
   jti?: string;
   scope?: string;
   role?: unknown;
@@ -77,6 +80,7 @@ export function buildPrincipal(claims: {
     sub: claims.sub,
     email: claims.email,
     clientId: claims.client_id,
+    actor: claims.actor,
     jti: claims.jti,
     role: user.role,
     tokenScopes,
@@ -93,6 +97,8 @@ export type AuditEntry = {
   user: string;
   role?: Role;
   clientId?: string;
+  /** Agent acting on the user's behalf (`act` claim), present for on-behalf-of tokens. */
+  actor?: string;
   tool: string;
   scope?: Scope;
   decision: 'allow' | 'deny' | 'error';

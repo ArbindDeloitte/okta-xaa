@@ -123,6 +123,12 @@ async function postForm(url: string, body: Record<string, string | undefined>) {
   return { ok: res.ok, status: res.status, json };
 }
 
+/** Okta's invalid_scope text: "The following scopes are not allowed for this request: [a, b, c]." -> ['a','b','c'] */
+export function rejectedScopes(description: string): string[] {
+  const m = /\[([^\]]*)\]/.exec(description);
+  return m ? m[1].split(/[\s,]+/).filter(Boolean) : [];
+}
+
 const hint = (code: string | undefined, step: 2 | 3) => {
   if (step === 2) {
     switch (code) {
@@ -177,25 +183,40 @@ export async function performXaa(tokens: { idToken: string; refreshToken?: strin
   const t2 = Date.now();
   const t2Title = useRefresh ? 'Okta: refresh token → ID-JAG' : 'Okta: ID token → ID-JAG';
   // What we send to Okta (no secrets); shown in the trace so mismatches with the Okta config are easy to spot.
+  // Okta rejects the WHOLE request if any scope is not allowed on the connection. When that happens we drop the
+  // refused scopes and retry once, so narrowing the connection in Okta narrows what the agent gets instead of breaking it.
+  let scopes = [...cfg.retail.scopes];
   const sent = {
     audience: cfg.retail.authIssuer,
     resource: cfg.okta.sendResource ? cfg.retail.resource : '(not sent)',
-    scope: cfg.retail.scopes.join(' '),
+    scope: scopes.join(' '),
     subject_token_type: useRefresh ? REFRESH_TOKEN : ID_TOKEN,
     client_id: cfg.okta.clientId,
   };
   try {
     const endpoint = await oktaTokenEndpoint();
-    const r = await postForm(endpoint, {
-      grant_type: TOKEN_EXCHANGE,
-      requested_token_type: ID_JAG,
-      subject_token: useRefresh ? tokens.refreshToken : idToken,
-      subject_token_type: useRefresh ? REFRESH_TOKEN : ID_TOKEN,
-      audience: cfg.retail.authIssuer,
-      resource: cfg.okta.sendResource ? cfg.retail.resource : undefined,
-      scope: cfg.retail.scopes.join(' '),
-      ...(await oktaClientAuth(endpoint)),
-    });
+    const exchange = async (wanted: string[]) =>
+      postForm(endpoint, {
+        grant_type: TOKEN_EXCHANGE,
+        requested_token_type: ID_JAG,
+        subject_token: useRefresh ? tokens.refreshToken : idToken,
+        subject_token_type: useRefresh ? REFRESH_TOKEN : ID_TOKEN,
+        audience: cfg.retail.authIssuer,
+        resource: cfg.okta.sendResource ? cfg.retail.resource : undefined,
+        scope: wanted.join(' '),
+        ...(await oktaClientAuth(endpoint)),
+      });
+    let r = await exchange(scopes);
+    if (!r.ok && r.json.error === 'invalid_scope') {
+      const rejected = rejectedScopes(String(r.json.error_description ?? ''));
+      const kept = scopes.filter((s) => !rejected.includes(s));
+      if (rejected.length && kept.length) {
+        trace.push({ step: 0, title: 'Okta narrowed the scopes on this connection', status: 'skipped', detail: `Not allowed: ${rejected.join(' ')}. Retrying with: ${kept.join(' ')}` });
+        scopes = kept;
+        sent.scope = kept.join(' ');
+        r = await exchange(kept);
+      }
+    }
     if (!r.ok) {
       const msg = `${r.json.error ?? 'error'}: ${r.json.error_description ?? `HTTP ${r.status}`}`;
       trace.push({ step: 2, title: t2Title, status: 'error', ms: Date.now() - t2, detail: msg, data: { hint: hint(r.json.error, 2), sent_to_okta: sent, response: r.json } });
@@ -231,7 +252,7 @@ export async function performXaa(tokens: { idToken: string; refreshToken?: strin
     const r = await postForm(endpoint, {
       grant_type: JWT_BEARER,
       assertion: idJag,
-      scope: cfg.retail.scopes.join(' '),
+      scope: scopes.join(' '),
       client_id: cfg.retail.clientId,
       client_secret: cfg.retail.clientSecret,
     });

@@ -5,6 +5,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from 'jose';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -19,6 +20,7 @@ const CLIENT_SECRET = 'e2e-secret';
 const { publicKey, privateKey } = await generateKeyPair('RS256');
 const jwk = { ...(await exportJWK(publicKey)), kid: 'okta-test', alg: 'RS256', use: 'sig' };
 let policy: { granted: string } = { granted: '' }; // central XAA policy the "admin" controls
+let strictScopes = false; // real Okta rejects the WHOLE request if any requested scope is not allowed on the connection
 let overrides: { aud?: string; typ?: string; clientId?: string } = {};
 const issuedJags: string[] = [];
 const refreshStore = new Map<string, { sub: string; email: string }>();
@@ -33,6 +35,11 @@ const oktaServer = http.createServer(async (req, res) => {
       return send(400, { error: 'unsupported_grant_type' });
     }
     if (!policy.granted) return send(400, { error: 'access_denied', error_description: 'XAA policy denies this agent' });
+    if (strictScopes) {
+      const allowed = new Set(policy.granted.split(/\s+/));
+      const bad = (body.get('scope') ?? '').split(/\s+/).filter((s) => s && !allowed.has(s));
+      if (bad.length) return send(400, { error: 'invalid_scope', error_description: `The following scopes are not allowed for this request: [${bad.join(', ')}].` });
+    }
     const st = body.get('subject_token')!;
     const isRefresh = body.get('subject_token_type') === 'urn:ietf:params:oauth:token-type:refresh_token';
     const subj = isRefresh ? refreshStore.get(st) : decodeJwt(st);
@@ -87,6 +94,7 @@ const env = {
   RETAIL_AGENT_CLIENT_ID: CLIENT_ID, RETAIL_AGENT_CLIENT_SECRET: CLIENT_SECRET,
   RETAIL_AGENT_CLIENTS: 'limited-agent:limited-secret', // a second agent registered at the auth server
   PORTAL_USER_ROLES: 'boss@corp.test=manager,intern@corp.test=viewer', PORTAL_DEFAULT_ROLE: 'support',
+  RETAIL_AUTH_STATE_DIR: path.join(os.tmpdir(), `xaa-e2e-${process.pid}`), // never touch the real .keys/
 };
 const procs: ChildProcess[] = [];
 const start = (pkg: string) => {
@@ -189,6 +197,23 @@ try {
   policy = { granted: '' };
   try { await performXaa({ idToken: await idTokenFor('alice@corp.test'), refreshToken: 'rt-unknown' }, []); check('XAA error surfaced', false); }
   catch (e) { check('XAA error surfaced (access_denied, step 2)', e instanceof XaaError && e.code === 'access_denied' && e.step === 2, String(e)); }
+
+  console.log('\n5b. Okta rejects scopes outside the connection: the agent retries with only the allowed ones');
+  strictScopes = true;
+  policy = { granted: 'products:read inventory:read orders:read' };
+  const rtNarrow = 'rt-' + crypto.randomUUID();
+  refreshStore.set(rtNarrow, { sub: '00ualice', email: 'alice@corp.test' });
+  const narrowTrace: any[] = [];
+  const narrowed = await performXaa({ idToken: await idTokenFor('alice@corp.test'), refreshToken: rtNarrow }, narrowTrace);
+  check('exchange succeeds after the retry, with exactly the allowed scopes', [...narrowed.scope].sort().join(' ') === 'inventory:read orders:read products:read', narrowed.scope);
+  check('trace explains which scopes Okta refused', narrowTrace.some((s) => /narrowed/i.test(s.title) && s.detail.includes('customers:read') && s.detail.includes('returns:write')), narrowTrace.map((s) => s.title));
+  policy = { granted: 'unrelated:scope' };
+  const rtNone = 'rt-' + crypto.randomUUID();
+  refreshStore.set(rtNone, { sub: '00ualice', email: 'alice@corp.test' });
+  try { await performXaa({ idToken: await idTokenFor('alice@corp.test'), refreshToken: rtNone }, []); check('nothing allowed -> error', false); }
+  catch (e) { check('when NONE of the requested scopes is allowed, invalid_scope is surfaced (step 2)', e instanceof XaaError && e.code === 'invalid_scope' && e.step === 2, String(e)); }
+  strictScopes = false;
+  policy = { granted: ALL };
 
   console.log('\n6. Attacks on the retail authorization server');
   policy = { granted: ALL };

@@ -4,7 +4,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRemoteJWKSet, errors as joseErrors, jwtVerify } from 'jose';
+import { createRemoteJWKSet, decodeJwt, errors as joseErrors, jwtVerify } from 'jose';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { env, trimSlash } from './env.js';
@@ -17,6 +17,17 @@ const RESOURCE = trimSlash(env('RETAIL_RESOURCE', `http://localhost:${PORT}`));
 const AUTH_ISSUER = trimSlash(env('RETAIL_AUTH_ISSUER', 'http://localhost:5001'));
 const jwks = createRemoteJWKSet(new URL(`${AUTH_ISSUER}/jwks.json`));
 
+// Optional second token source: an Okta custom authorization server that mints tokens through the OAuth 2.0
+// on-behalf-of exchange (RFC 8693). Those tokens are issued by Okta itself, so no retail auth server is involved;
+// they name the user (sub/uid) and the agent that acted for them (act.sub). Off unless OBO_ISSUER is set.
+const OBO_ISSUER = trimSlash(env('OBO_ISSUER', ''));
+const OBO_AUDIENCE = env('OBO_AUDIENCE', RESOURCE);
+const oboJwks = OBO_ISSUER ? createRemoteJWKSet(new URL(`${OBO_ISSUER}/v1/keys`)) : undefined;
+
+/** "sub" of the outermost actor in an RFC 8693 `act` claim (the app that performed the exchange). */
+const actorOf = (act: unknown): string | undefined =>
+  act && typeof act === 'object' && typeof (act as { sub?: unknown }).sub === 'string' ? (act as { sub: string }).sub : undefined;
+
 declare global {
   namespace Express {
     interface Request {
@@ -28,8 +39,16 @@ declare global {
 const app = express();
 app.disable('x-powered-by');
 
+// The MCP endpoint is the resource identifier itself when that has a path (e.g. https://host/mcp, the convention
+// used by GitHub/Slack MCP and what Okta Agent Gateway calls); a bare base URL keeps the older "<base>/mcp" layout.
+const RESOURCE_PATH = new URL(RESOURCE).pathname.replace(/\/+$/, '');
+const MCP_PATH = RESOURCE_PATH || '/mcp';
+
 // ---- OAuth protected resource metadata (RFC 9728) -------------------------------------------
-app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+// Served at the root well-known URL and, for a resource with a path, at the path-inserted URL
+// (/.well-known/oauth-protected-resource/mcp) that RFC 9728 clients such as Okta fetch.
+const METADATA_URL = `${new URL(RESOURCE).origin}/.well-known/oauth-protected-resource${RESOURCE_PATH}`;
+app.get(['/.well-known/oauth-protected-resource', `/.well-known/oauth-protected-resource${RESOURCE_PATH}`], (_req, res) => {
   res.set('X-Retail-Portal', '1'); // lets the startup self-check tell this server apart from another program on the port
   res.json({
     resource: RESOURCE,
@@ -45,12 +64,30 @@ async function requireBearer(req: Request, res: Response, next: NextFunction) {
   const challenge = (error: string, desc: string) => {
     res
       .status(401)
-      .set('WWW-Authenticate', `Bearer error="${error}", error_description="${desc}", resource_metadata="${RESOURCE}/.well-known/oauth-protected-resource"`)
+      .set('WWW-Authenticate', `Bearer error="${error}", error_description="${desc}", resource_metadata="${METADATA_URL}"`)
       .json({ error, error_description: desc });
   };
   const m = /^Bearer (.+)$/i.exec(req.headers.authorization ?? '');
   if (!m) return challenge('invalid_request', 'Missing bearer token');
   try {
+    let issuer: unknown;
+    try { issuer = decodeJwt(m[1]).iss; } catch { /* not a JWT: the verification below rejects it */ }
+    if (oboJwks && issuer === OBO_ISSUER) {
+      // Okta on-behalf-of token: verified against Okta's keys. Okta access tokens carry the user as `sub` (login, usually an
+      // email) and `uid` (the 00u… id), the calling app as `cid`, and scopes as the array `scp`.
+      const { payload } = await jwtVerify(m[1], oboJwks, { issuer: OBO_ISSUER, audience: OBO_AUDIENCE, algorithms: ['RS256'] });
+      const login = String(payload.sub);
+      req.principal = buildPrincipal({
+        sub: typeof payload.uid === 'string' ? payload.uid : login,
+        email: typeof payload.email === 'string' ? payload.email : login.includes('@') ? login : undefined,
+        client_id: String(payload.cid ?? payload.azp ?? 'unknown'),
+        actor: actorOf(payload.act),
+        jti: payload.jti,
+        scope: Array.isArray(payload.scp) ? payload.scp.join(' ') : typeof payload.scp === 'string' ? payload.scp : '',
+        // no role claim: Okta does not know our roles, so the portal applies PORTAL_USER_ROLES / the default itself
+      });
+      return next();
+    }
     const { payload } = await jwtVerify(m[1], jwks, {
       issuer: AUTH_ISSUER,
       audience: RESOURCE,
@@ -74,7 +111,7 @@ async function requireBearer(req: Request, res: Response, next: NextFunction) {
 }
 
 // ---- MCP endpoint (stateless Streamable HTTP; one server instance per request) --------------
-app.post('/mcp', requireBearer, express.json(), async (req, res) => {
+app.post(MCP_PATH, requireBearer, express.json(), async (req, res) => {
   const p = req.principal!;
   const server = new McpServer({ name: 'retail-portal', version: '1.0.0' });
 
@@ -104,13 +141,13 @@ app.post('/mcp', requireBearer, express.json(), async (req, res) => {
 });
 const methodNotAllowed = (_req: Request, res: Response) =>
   res.status(405).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed (stateless server)' }, id: null });
-app.get('/mcp', methodNotAllowed);
-app.delete('/mcp', methodNotAllowed);
+app.get(MCP_PATH, methodNotAllowed);
+app.delete(MCP_PATH, methodNotAllowed);
 
 // ---- REST API (same tools, same governance) -------------------------------------------------
 app.get('/api/me', requireBearer, (req, res) => {
   const p = req.principal!;
-  res.json({ sub: p.sub, email: p.email, role: p.role, clientId: p.clientId, tokenScopes: p.tokenScopes, effectiveScopes: p.effectiveScopes });
+  res.json({ sub: p.sub, email: p.email, role: p.role, clientId: p.clientId, actor: p.actor, tokenScopes: p.tokenScopes, effectiveScopes: p.effectiveScopes });
 });
 app.post('/api/tools/:name', requireBearer, express.json(), (req, res) => {
   const def = tools.find((t) => t.name === req.params.name);
@@ -163,6 +200,7 @@ const server = app.listen(PORT, () => {
   console.log(`  MCP endpoint : ${RESOURCE}/mcp`);
   console.log(`  Console      : ${RESOURCE}/`);
   console.log(`  Trusts AS    : ${AUTH_ISSUER}`);
+  if (OBO_ISSUER) console.log(`  Also trusts  : ${OBO_ISSUER} (Okta on-behalf-of tokens, audience ${OBO_AUDIENCE})`);
 });
 server.on('error', (e: NodeJS.ErrnoException) => {
   if (e.code === 'EADDRINUSE') {

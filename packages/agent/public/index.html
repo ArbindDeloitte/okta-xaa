@@ -8,13 +8,13 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="mark">HPE</span> <span id="agentName">Ops Agent</span> <small>Okta Cross App Access demo</small></div>
+  <div class="brand"><span class="mark">HPE</span> <span id="agentName">Ops Agent</span> <small id="subtitle">Okta Cross App Access demo</small></div>
   <div class="who" id="who"></div>
 </header>
 
 <div id="signedout" class="hero hidden">
   <h1>Governed AI access to the HPE Order Portal</h1>
-  <p>Sign in with Okta. The agent then uses <strong>Cross App Access (XAA)</strong> to get an HPE Order Portal token on your behalf —
+  <p id="heroText">Sign in with Okta. The agent then uses <strong>Cross App Access (XAA)</strong> to get an HPE Order Portal token on your behalf —
      no consent popups, and your admin controls exactly which tools the agent can use.</p>
   <a class="btn primary" href="/login">Sign in with Okta</a>
   <p class="fine" id="cfgwarn"></p>
@@ -32,9 +32,13 @@
 
   <aside class="xaa">
     <div class="card">
-      <div class="row"><h2>Cross App Access</h2><button class="btn small" id="connect">Run XAA exchange</button></div>
+      <div id="modeBox" class="modes hidden" role="radiogroup" aria-label="How the agent reaches the portal">
+        <label><input type="radio" name="mode" value="xaa" checked> Direct XAA</label>
+        <label><input type="radio" name="mode" value="gateway"> Okta Agent Gateway</label>
+      </div>
+      <div class="row"><h2 id="cardTitle">Cross App Access</h2><button class="btn small" id="connect">Run XAA exchange</button></div>
       <div id="xstatus" class="muted">Not connected yet. Sending a message (or the button) runs the exchange.</div>
-      <h3>Scopes granted by Okta</h3>
+      <h3 id="scopesHead">Scopes granted by Okta</h3>
       <div id="scopes" class="chips2"><span class="muted">–</span></div>
       <h3>MCP tools visible to the agent</h3>
       <div id="tools" class="chips2"><span class="muted">–</span></div>

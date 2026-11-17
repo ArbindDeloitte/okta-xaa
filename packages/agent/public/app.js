@@ -54,10 +54,70 @@ function renderTrace(trace) {
     </div>`).join('');
 }
 
+// How the agent reaches the portal: 'xaa' (the agent does the Cross App Access exchange itself) or 'gateway' (Okta Agent Gateway).
+let mode = 'xaa';
+let gatewayInfo = { enabled: false, signedIn: false };
+let lastXaa = null; // what the governance panel showed in XAA mode, restored when switching back
+
 function renderGovernance(scope, tools, expiresAt, role) {
-  $('scopes').innerHTML = scope?.length ? scope.map((s) => `<span>${esc(s)}</span>`).join('') : '<span class="muted">–</span>';
+  if (mode === 'gateway') {
+    $('scopes').innerHTML = '<span class="muted">applied by the gateway, then capped by your portal role</span>';
+  } else {
+    lastXaa = { scope, tools, expiresAt, role };
+    $('scopes').innerHTML = scope?.length ? scope.map((s) => `<span>${esc(s)}</span>`).join('') : '<span class="muted">–</span>';
+  }
   $('tools').innerHTML = tools?.length ? tools.map((t) => `<span title="${esc(t.description)}">${esc(t.name)}</span>`).join('') : '<span class="muted">–</span>';
-  if (expiresAt) $('xstatus').textContent = `Connected${role ? ` as role "${role}"` : ''}. HPE Order Portal token valid until ${new Date(expiresAt).toLocaleTimeString()}.`;
+  if (expiresAt) {
+    $('xstatus').textContent = mode === 'gateway'
+      ? `Connected through the Okta Agent Gateway. Gateway token valid until ${new Date(expiresAt).toLocaleTimeString()}.`
+      : `Connected${role ? ` as role "${role}"` : ''}. HPE Order Portal token valid until ${new Date(expiresAt).toLocaleTimeString()}.`;
+  }
+}
+
+function setMode(m, announce) {
+  mode = m === 'gateway' && gatewayInfo.enabled ? 'gateway' : 'xaa';
+  try { localStorage.setItem('agentMode', mode); } catch {}
+  document.querySelectorAll('input[name=mode]').forEach((r) => (r.checked = r.value === mode));
+  $('cardTitle').textContent = mode === 'gateway' ? 'Okta Agent Gateway' : 'Cross App Access';
+  $('scopesHead').textContent = mode === 'gateway' ? 'Scopes' : 'Scopes granted by Okta';
+  $('connect').textContent = mode === 'gateway' ? (gatewayInfo.signedIn ? 'Refresh tools' : 'Connect to gateway') : 'Run XAA exchange';
+  $('trace').innerHTML = '<span class="muted">' + (mode === 'gateway' ? 'The gateway path appears here after a message.' : 'The ID token → ID-JAG → access token steps appear here.') + '</span>';
+  if (mode === 'gateway') {
+    $('scopes').innerHTML = '<span class="muted">applied by the gateway, then capped by your portal role</span>';
+    $('tools').innerHTML = '<span class="muted">–</span>';
+    $('xstatus').textContent = gatewayInfo.signedIn ? 'Signed in to the gateway. Sending a message (or the button) lists its tools.' : 'Not signed in to the gateway yet. Click "Connect to gateway".';
+    if (gatewayInfo.signedIn) void gatewayConnect();
+  } else if (lastXaa) {
+    renderGovernance(lastXaa.scope, lastXaa.tools, lastXaa.expiresAt, lastXaa.role);
+  } else {
+    $('scopes').innerHTML = '<span class="muted">–</span>';
+    $('tools').innerHTML = '<span class="muted">–</span>';
+    $('xstatus').textContent = 'Not connected yet. Sending a message (or the button) runs the exchange.';
+  }
+  if (announce) addMsg('sys', mode === 'gateway' ? 'Now using the <strong>Okta Agent Gateway</strong>: the agent calls the gateway, which adds the portal credential.' : 'Now using <strong>direct Cross App Access</strong>: the agent exchanges your Okta token itself.');
+}
+
+/** List the tools the gateway exposes (also proves the gateway token works). */
+async function gatewayConnect() {
+  $('xstatus').textContent = 'Asking the gateway for its tools…';
+  const { ok, j } = await api('/api/gateway/connect', {});
+  if (j.trace) renderTrace(j.trace);
+  if (ok) { gatewayInfo.signedIn = true; renderGovernance([], j.tools, j.expiresAt); }
+  else showGatewayProblem(j);
+}
+
+function showGatewayProblem(j) {
+  if (j.error === 'gateway_not_signed_in') {
+    gatewayInfo.signedIn = false;
+    $('connect').textContent = 'Connect to gateway';
+    $('xstatus').textContent = 'Not signed in to the gateway yet. Click "Connect to gateway".';
+    addMsg('err', `Sign in to the Okta Agent Gateway first: <a href="${esc(j.loginUrl || '/gateway/login?return=/')}">Sign in to the gateway</a>.`);
+  } else if (j.error === 'consent_required' && /^https:\/\//.test(j.consentUrl || '')) {
+    addMsg('err', `${esc(j.message)} <a class="btn small" target="_blank" rel="noopener" href="${esc(j.consentUrl)}">Connect your account</a> then ask again.`);
+  } else {
+    $('xstatus').textContent = j.message || 'Gateway request failed.';
+    addMsg('err', esc(j.message || j.error || 'Gateway request failed'));
+  }
 }
 
 async function api(path, body) {
@@ -66,8 +126,24 @@ async function api(path, body) {
   return { ok: r.ok, status: r.status, j };
 }
 
+// Wording and endpoint of the connect button; the on-behalf-of agent app overrides them through /api/me -> ui.
+let connectPath = '/api/xaa/connect';
+let welcome = 'Signed in. Ask a question — the agent will use Okta Cross App Access to reach the HPE Order Portal on your behalf.';
+function applyUi(ui) {
+  if (!ui) return;
+  if (ui.subtitle) $('subtitle').textContent = ui.subtitle;
+  if (ui.heroText) $('heroText').innerHTML = ui.heroText;
+  if (ui.cardTitle) $('cardTitle').textContent = ui.cardTitle;
+  if (ui.connectLabel) $('connect').textContent = ui.connectLabel;
+  if (ui.scopesHead) $('scopesHead').textContent = ui.scopesHead;
+  if (ui.traceHint) $('trace').innerHTML = `<span class="muted">${esc(ui.traceHint)}</span>`;
+  if (ui.connectPath) connectPath = ui.connectPath;
+  if (ui.welcome) welcome = ui.welcome;
+}
+
 async function init() {
   const { j: me } = await api('/api/me');
+  applyUi(me.ui);
   if (me.agentName) {
     $('agentName').textContent = me.agentName;
     document.title = 'HPE ' + me.agentName;
@@ -80,13 +156,22 @@ async function init() {
   const label = me.user?.email || me.user?.name || me.user?.sub;
   $('who').innerHTML = `<span>${esc(label)}</span> · <span>${esc(me.model)}</span> <a class="btn small" href="/logout">Sign out</a>`;
   renderGovernance(me.retail?.scope, me.tools, me.retail?.expiresAt, me.retail?.role);
-  addMsg('sys', 'Signed in. Ask a question — the agent will use Okta Cross App Access to reach the HPE Order Portal on your behalf.');
+  gatewayInfo = me.gateway || gatewayInfo;
+  if (gatewayInfo.enabled) {
+    $('modeBox').classList.remove('hidden');
+    document.querySelectorAll('input[name=mode]').forEach((r) => (r.onchange = () => setMode(r.value, true)));
+    let saved = 'xaa';
+    try { saved = localStorage.getItem('agentMode') || 'xaa'; } catch {}
+    if (saved === 'gateway') setMode('gateway', false);
+  }
+  addMsg('sys', esc(welcome));
   if (!me.llmConfigured) addMsg('err', 'ANTHROPIC_API_KEY is not set on the server, so chat will fail. Add it to .env and restart.');
   $('chips').innerHTML = SUGGESTIONS.map((s) => `<button type="button">${esc(s)}</button>`).join('');
   $('chips').querySelectorAll('button').forEach((b) => (b.onclick = () => { $('input').value = b.textContent; $('form').requestSubmit(); }));
 }
 
 function handleAuthExpired(j) {
+  if (j.error === 'not_authenticated') addMsg('err', 'Your session ended (the agent app was restarted). <a href="/login">Sign in again</a>.');
   if (j.error === 'id_token_expired' || (j.error === 'invalid_grant' && j.step === 2)) addMsg('err', 'Your Okta session expired. <a href="/login">Sign in again</a>.');
 }
 
@@ -98,10 +183,14 @@ $('form').addEventListener('submit', async (e) => {
   $('send').disabled = true;
   addMsg('user', esc(text));
   const pending = addMsg('sys', '<span class="dots">Working</span>');
-  const { ok, j } = await api('/api/chat', { message: text });
+  const { ok, j } = await api('/api/chat', { message: text, mode });
   pending.remove();
   renderTrace(j.trace);
-  if (!ok) {
+  if (!ok && j.error === 'not_authenticated') {
+    handleAuthExpired(j);
+  } else if (!ok && mode === 'gateway') {
+    showGatewayProblem(j);
+  } else if (!ok) {
     addMsg('err', esc(j.message || j.error || 'Request failed'));
     handleAuthExpired(j);
   } else {
@@ -114,9 +203,16 @@ $('form').addEventListener('submit', async (e) => {
 });
 
 $('connect').addEventListener('click', async () => {
+  if (mode === 'gateway') {
+    if (!gatewayInfo.signedIn) { location.href = '/gateway/login?return=/'; return; }
+    $('connect').disabled = true;
+    await gatewayConnect();
+    $('connect').disabled = false;
+    return;
+  }
   $('connect').disabled = true;
-  $('xstatus').textContent = 'Running XAA exchange…';
-  const { ok, j } = await api('/api/xaa/connect', {});
+  $('xstatus').textContent = 'Running the token exchange…';
+  const { ok, j } = await api(connectPath, {});
   renderTrace(j.trace);
   if (ok) renderGovernance(j.scope, j.tools, j.expiresAt, j.role);
   else { $('xstatus').textContent = j.message || 'XAA exchange failed.'; handleAuthExpired(j); }

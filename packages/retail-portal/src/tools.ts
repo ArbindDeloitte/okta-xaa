@@ -203,7 +203,7 @@ export type ToolResult =
 /** Enforce portal-side scope check, run the tool, and write the audit record. */
 export function invokeTool(def: ToolDef, rawArgs: unknown, p: Principal, via: 'mcp' | 'rest'): ToolResult {
   const t0 = Date.now();
-  const base = { via, user: p.label, role: p.role, clientId: p.clientId, tool: def.name, scope: def.scope, args: rawArgs };
+  const base = { via, user: p.label, role: p.role, clientId: p.clientId, actor: p.actor, tool: def.name, scope: def.scope, args: rawArgs };
 
   if (!p.tokenScopes.includes(def.scope)) {
     recordAudit({ ...base, decision: 'deny', reason: `token lacks scope ${def.scope} (not granted by Okta)` });

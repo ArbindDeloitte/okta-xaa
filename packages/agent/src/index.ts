@@ -7,12 +7,14 @@ import { fileURLToPath } from 'node:url';
 import * as oidc from 'openid-client';
 import { decodeJwt } from 'jose';
 import { cfg } from './config.js';
-import { listRetailTools, McpAuthError, runAgent, type ChatMessage, type ToolInfo } from './agent.js';
+import { ConsentRequiredError, listRetailTools, McpAuthError, runAgent, type ChatMessage, type ToolInfo } from './agent.js';
 import { agentSigningKey, oktaTokenEndpoint, performXaa, XaaError, type RetailAccess, type TraceStep } from './xaa.js';
+import { gatewayEnabled, gatewayOidc, gatewayTokensFrom, refreshGatewayTokens, testGateway } from './gateway.js';
 
 declare module 'express-session' {
   interface SessionData {
-    login?: { verifier: string; state: string; nonce: string };
+    login?: { verifier: string; state: string; nonce: string; gateway?: boolean; returnTo?: string };
+    gateway?: { accessToken: string; refreshToken?: string; expiresAt: number };
     idToken?: string;
     refreshToken?: string;
     user?: { sub: string; name?: string; email?: string };
@@ -52,6 +54,8 @@ app.use(
   }),
 );
 
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
 const requireLogin = (req: Request, res: Response, next: NextFunction) =>
   req.session.idToken ? next() : void res.status(401).json({ error: 'not_authenticated' });
 
@@ -76,9 +80,106 @@ app.get('/login', async (req, res, next) => {
   }
 });
 
+// ---- Okta Agent Gateway test mode (optional) ------------------------------------------------
+// Sign in to the gateway's authorization server (same Okta app + redirect URI as the normal login), then call the
+// gateway's MCP URL instead of doing XAA ourselves. Page: /gateway.html
+app.get('/gateway/login', requireLogin, async (req, res, next) => {
+  try {
+    if (!gatewayEnabled()) return void res.status(404).send('Set GATEWAY_MCP_URL in .env to enable the gateway test.');
+    const { config, scopes } = await gatewayOidc();
+    const verifier = oidc.randomPKCECodeVerifier();
+    const state = oidc.randomState();
+    const nonce = oidc.randomNonce();
+    const returnTo = req.query.return === '/' ? '/' : '/gateway.html'; // fixed allow-list, never an arbitrary URL
+    req.session.login = { verifier, state, nonce, gateway: true, returnTo };
+    const url = oidc.buildAuthorizationUrl(config, {
+      redirect_uri: `${cfg.baseUrl}/callback`,
+      scope: scopes.join(' '),
+      code_challenge: await oidc.calculatePKCECodeChallenge(verifier),
+      code_challenge_method: 'S256',
+      state,
+      nonce,
+    });
+    req.session.save(() => res.redirect(url.href));
+  } catch (e) {
+    next(e);
+  }
+});
+
+class GatewaySignInRequired extends Error {}
+
+/** A valid gateway access token for this browser session: reuse it, refresh it, or ask the user to sign in to the gateway. */
+async function ensureGatewayToken(req: Request): Promise<string> {
+  const g = req.session.gateway;
+  if (g && g.expiresAt - Date.now() > 30_000) return g.accessToken;
+  if (g?.refreshToken) {
+    try {
+      req.session.gateway = await refreshGatewayTokens(g.refreshToken);
+      return req.session.gateway.accessToken;
+    } catch (e) {
+      console.warn('Gateway token refresh failed:', (e as Error).message);
+    }
+  }
+  req.session.gateway = undefined;
+  throw new GatewaySignInRequired();
+}
+const gatewayNeedsSignIn = { error: 'gateway_not_signed_in', message: 'Sign in to the Okta Agent Gateway first.', loginUrl: '/gateway/login?return=/' };
+
+app.post('/api/gateway/test', requireLogin, async (req, res) => {
+  try {
+    res.json(await testGateway(await ensureGatewayToken(req)));
+  } catch (e) {
+    if (e instanceof GatewaySignInRequired) return void res.status(401).json(gatewayNeedsSignIn);
+    res.status(502).json({ error: 'gateway_error', message: (e as Error).message });
+  }
+});
+
+/** Gateway mode: list the tools the gateway exposes to this user (shown in the governance panel). */
+app.post('/api/gateway/connect', requireLogin, async (req, res) => {
+  if (!gatewayEnabled()) return void res.status(400).json({ error: 'gateway_disabled', message: 'Set GATEWAY_MCP_URL in .env to enable gateway mode.' });
+  const t0 = Date.now();
+  try {
+    const token = await ensureGatewayToken(req);
+    const tools = await listRetailTools(token, cfg.gateway.mcpUrl);
+    res.json({ tools, expiresAt: req.session.gateway?.expiresAt, trace: gatewayTrace(tools.length, Date.now() - t0) });
+  } catch (e) {
+    if (e instanceof GatewaySignInRequired) return void res.status(401).json(gatewayNeedsSignIn);
+    res.status(502).json({ error: 'gateway_error', message: (e as Error).message });
+  }
+});
+
+const gatewayTrace = (toolCount: number, ms: number): TraceStep[] => [
+  { step: 1, title: 'Agent holds an Okta token for the gateway', status: 'ok', detail: 'Authorization code + PKCE at the gateway\'s Okta authorization server (same Okta app as the sign-in).' },
+  { step: 2, title: 'Agent calls the Okta Agent Gateway MCP URL', status: 'ok', ms, detail: `${cfg.gateway.mcpUrl}: ${toolCount} tools exposed` },
+  { step: 3, title: 'Gateway adds the portal credential (brokered consent)', status: 'ok', detail: 'The agent never sees it. Our auth server still applies the user\'s role and scopes; the portal enforces them again.' },
+];
+
+app.get('/api/gateway/status', (req, res) => {
+  const g = req.session.gateway;
+  res.json({ enabled: gatewayEnabled(), url: cfg.gateway.mcpUrl || null, mainSignedIn: Boolean(req.session.idToken), gatewaySignedIn: Boolean(g && (g.expiresAt > Date.now() || g.refreshToken)) });
+});
+
 app.get('/callback', async (req, res) => {
   const login = req.session.login;
   if (!login) return void res.status(400).send('Login session missing or expired. <a href="/login">Try again</a>.');
+  if (login.gateway) {
+    try {
+      const { config } = await gatewayOidc();
+      const tokens = await oidc.authorizationCodeGrant(config, new URL(`${cfg.baseUrl}${req.originalUrl}`), {
+        pkceCodeVerifier: login.verifier,
+        expectedState: login.state,
+        expectedNonce: login.nonce,
+        idTokenExpected: true,
+      });
+      const returnTo = login.returnTo === '/' ? '/' : '/gateway.html';
+      req.session.login = undefined;
+      req.session.gateway = gatewayTokensFrom(tokens);
+      return void req.session.save(() => res.redirect(returnTo));
+    } catch (e) {
+      console.error('Gateway sign-in failed', e);
+      return void res.status(400).send(`Gateway sign-in failed: ${esc((e as Error).message)}. <a href="/gateway.html">Back</a>.`);
+    }
+  }
   try {
     const tokens = await oidc.authorizationCodeGrant(oktaConfig, new URL(`${cfg.baseUrl}${req.originalUrl}`), {
       pkceCodeVerifier: login.verifier,
@@ -161,7 +262,9 @@ app.get('/api/me', (req, res) => {
     retail: s.retail ? { scope: s.retail.scope, role: s.retail.role, expiresAt: s.retail.expiresAt } : null,
     tools: s.tools ?? [],
     model: cfg.llm.model,
-    agentName: cfg.agentName,    idTokenExpiresAt: s.idToken ? (decodeJwt(s.idToken).exp ?? 0) * 1000 : null,
+    agentName: cfg.agentName,
+    gateway: { enabled: gatewayEnabled(), signedIn: Boolean(s.gateway && (s.gateway.expiresAt > Date.now() || s.gateway.refreshToken)) },
+    idTokenExpiresAt: s.idToken ? (decodeJwt(s.idToken).exp ?? 0) * 1000 : null,
     llmConfigured: cfg.llm.provider === 'groq' ? Boolean(cfg.llm.groq.apiKey) : Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.BEDROCK_API_KEY),
     provider: cfg.llm.provider,
   });
@@ -184,6 +287,27 @@ app.post('/api/chat', requireLogin, async (req, res) => {
   const trace: TraceStep[] = [];
   const history = req.session.history ?? [];
   const userLabel = req.session.user?.email ?? req.session.user?.name ?? req.session.user?.sub ?? 'the signed-in user';
+
+  if (req.body?.mode === 'gateway') {
+    // Gateway mode: no XAA here. The agent talks to the Okta Agent Gateway with its Okta token; the gateway calls the portal.
+    if (!gatewayEnabled()) return void res.status(400).json({ error: 'gateway_disabled', message: 'Set GATEWAY_MCP_URL in .env to enable gateway mode.' });
+    const t0 = Date.now();
+    try {
+      const token = await ensureGatewayToken(req);
+      const out = await runAgent({ accessToken: token, mcpUrl: cfg.gateway.mcpUrl, userLabel, history, message });
+      req.session.history = [...history, { role: 'user' as const, content: message }, { role: 'assistant' as const, content: out.reply }].slice(-30);
+      return void res.json({ reply: out.reply, toolCalls: out.toolCalls, trace: gatewayTrace(out.tools.length, Date.now() - t0), scope: [], tools: out.tools, expiresAt: req.session.gateway?.expiresAt, mode: 'gateway' });
+    } catch (e) {
+      if (e instanceof GatewaySignInRequired || e instanceof McpAuthError) {
+        req.session.gateway = undefined;
+        return void res.status(401).json(gatewayNeedsSignIn);
+      }
+      if (e instanceof ConsentRequiredError) return void res.status(409).json({ error: 'consent_required', message: e.message, consentUrl: e.url, trace });
+      console.error('gateway chat error:', (e as Error).message);
+      return void res.status(502).json({ error: 'gateway_error', message: (e as Error).message, trace });
+    }
+  }
+
   try {
     let access = await ensureRetailAccess(req, trace);
     let out;

@@ -44,10 +44,23 @@ async function chat(body: Record<string, unknown>): Promise<any> {
 }
 
 // The MCP SDK emits JSON Schema with a "$schema" key; not every OpenAI-compatible server accepts it.
+// Models (gpt-oss on Groq) often send null for an optional argument they have nothing for, and Groq rejects the call
+// ("expected string, but got null"). So optional properties accept null here, and the nulls are dropped before the MCP call.
 const cleanSchema = (schema: Record<string, unknown>) => {
   const { $schema: _ignored, ...rest } = schema;
-  return rest;
+  const props = rest.properties as Record<string, Record<string, unknown>> | undefined;
+  if (!props) return rest;
+  const required = new Set((rest.required as string[] | undefined) ?? []);
+  const properties = Object.fromEntries(
+    Object.entries(props).map(([k, p]) => [
+      k,
+      !required.has(k) && typeof p.type === 'string' ? { ...p, type: [p.type, 'null'] } : p,
+    ]),
+  );
+  return { ...rest, properties };
 };
+
+const dropNulls = (args: Record<string, unknown>) => Object.fromEntries(Object.entries(args).filter(([, v]) => v !== null));
 
 export async function runOpenAiLoop(o: {
   system: string;
@@ -100,7 +113,7 @@ export async function runOpenAiLoop(o: {
       let args: Record<string, unknown> = {};
       let out: { text: string; isError: boolean };
       try {
-        args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
+        args = dropNulls(call.function.arguments ? JSON.parse(call.function.arguments) : {});
         out = await o.callTool(call.function.name, args);
       } catch (e) {
         out = { text: JSON.stringify({ error: 'invalid_tool_arguments', message: (e as Error).message }), isError: true };

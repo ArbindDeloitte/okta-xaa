@@ -3,6 +3,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env, trimSlash } from './env.js';
 
+// AWS's own name for a Bedrock API key; treat it as BEDROCK_API_KEY so either spelling works.
+if (!process.env.BEDROCK_API_KEY?.trim() && process.env.AWS_BEARER_TOKEN_BEDROCK?.trim()) {
+  process.env.BEDROCK_API_KEY = process.env.AWS_BEARER_TOKEN_BEDROCK.trim();
+}
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 const port = Number(env('AGENT_PORT', '3000'));
@@ -60,7 +65,8 @@ export const cfg = {
   retail: {
     authIssuer: trimSlash(env('RETAIL_AUTH_ISSUER', 'http://localhost:5001')),
     resource: trimSlash(env('RETAIL_RESOURCE', 'http://localhost:3001')),
-    mcpUrl: env('RETAIL_MCP_URL', `${trimSlash(env('RETAIL_RESOURCE', 'http://localhost:3001'))}/mcp`),
+    // If the resource identifier already has a path (e.g. https://host/mcp) it IS the MCP endpoint; a bare base URL gets "/mcp".
+    mcpUrl: env('RETAIL_MCP_URL', ((r) => (new URL(r).pathname.replace(/\/+$/, '') ? r : `${r}/mcp`))(trimSlash(env('RETAIL_RESOURCE', 'http://localhost:3001')))),
     // The agent's client credentials *at the retail authorization server*. In Okta these are
     // configured on the XAA connection; the ID-JAG's client_id claim must match.
     clientId: env('RETAIL_AGENT_CLIENT_ID', 'agent-at-retail'),
@@ -71,6 +77,13 @@ export const cfg = {
     )
       .split(/\s+/)
       .filter(Boolean),
+  },
+
+  // Okta Agent Gateway test mode (optional): the gateway's MCP URL, e.g. https://<org>.gateway.oktapreview.com/mcp/servers/<name>.
+  // The authorization server that issues gateway tokens is discovered from the gateway; override with GATEWAY_AUTH_ISSUER.
+  gateway: {
+    mcpUrl: env('GATEWAY_MCP_URL', ''),
+    authIssuer: trimSlash(env('GATEWAY_AUTH_ISSUER', '')),
   },
 
   llm: {

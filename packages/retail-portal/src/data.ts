@@ -121,7 +121,36 @@ export const orders: Order[] = [
   mk('SO-10010', 'ACC-003', 'delivered', 'partner', 15, 11, [line('HPE-4003', 2), line('HPE-2003', 1)]),
 ];
 
-export const returns: ReturnRequest[] = [];
+// Sample RMAs on delivered orders, consistent with the return rules (within 30 days of delivery, qty <= ordered,
+// refunds above the support limit wait for a manager). New RMAs created through the tools continue from RMA-5006.
+const rma = (
+  id: string,
+  orderId: string,
+  sku: string,
+  qty: number,
+  reason: string,
+  status: ReturnStatus,
+  createdDaysAgo: number,
+  createdBy: string,
+): ReturnRequest => ({
+  id,
+  orderId,
+  sku,
+  qty,
+  reason,
+  refundAmount: Math.round(qty * products.find((p) => p.sku === sku)!.price * 100) / 100,
+  status,
+  createdAt: daysAgo(createdDaysAgo),
+  createdBy,
+});
 
-let returnSeq = 5000;
+export const returns: ReturnRequest[] = [
+  rma('RMA-5001', 'SO-10006', 'HPE-4001', 1, 'Smart Storage Battery failed on first power-up', 'approved', 15, 'noah.support@hpe.example'),
+  rma('RMA-5002', 'SO-10010', 'HPE-4003', 2, 'Wrong transceiver type ordered (needed LR, received SR)', 'approved', 8, 'ava.support@hpe.example'),
+  rma('RMA-5003', 'SO-10006', 'HPE-1002', 1, 'DIMM slot fault on arrival, server will not POST', 'pending_manager_approval', 12, 'noah.support@hpe.example'),
+  rma('RMA-5004', 'SO-10001', 'HPE-4004', 1, 'Ordered the wrong cable management arm for the chassis', 'approved', 6, 'ava.support@hpe.example'),
+  rma('RMA-5005', 'SO-10010', 'HPE-2003', 1, 'Memory kit not recognised by the server', 'approved', 5, 'ava.support@hpe.example'),
+];
+
+let returnSeq = 5005;
 export const nextReturnId = () => `RMA-${++returnSeq}`;
