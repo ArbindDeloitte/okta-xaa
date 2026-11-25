@@ -8,11 +8,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import express, { type Request, type Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { createRemoteJWKSet, exportJWK, generateKeyPair, importJWK, jwtVerify, SignJWT, errors as joseErrors, type JWK, type JWTPayload, type KeyLike } from 'jose';
 import { env, trimSlash } from './env.js';
 import { defaultRole, knownUsers, ROLE_SCOPES, roleFor, type Role } from '../../shared/roles.js';
 import { finishOktaLogin, LOGIN_MODE, startOktaLogin } from './okta-login.js';
+import { getExchanges, recordExchange } from './exchanges.js';
 
 const PORT = Number(env('AUTH_PORT', '5001'));
 const ISSUER = trimSlash(env('RETAIL_AUTH_ISSUER', `http://localhost:${PORT}`));
@@ -30,6 +31,9 @@ const TOKEN_TTL = Number(env('ACCESS_TOKEN_TTL_SECONDS', '600'));
 const ALLOWED_SCOPES = new Set(
   env('RETAIL_ALLOWED_SCOPES', 'products:read inventory:read orders:read customers:read orders:write returns:read returns:write').split(/\s+/),
 );
+// Off by default: a minted access token is a live credential (usable against the portal until it expires). When on,
+// the /portal live view also shows the raw token text, not just its decoded claims. Never leave this on past a demo.
+const SHOW_TOKENS = env('AUTH_PORTAL_SHOW_TOKENS', 'false') === 'true';
 
 // ---- signing key + refresh tokens: persisted in .keys/ (git-ignored) ------------------------------
 // Okta Agent Gateway keeps the tokens it got for a long time, so a restart of this server must NOT invalidate them:
@@ -114,6 +118,34 @@ function authenticateClient(req: Request, registry: Map<string, string> = client
   return id;
 }
 
+/** Best-effort client_id for a request that may have FAILED authentication (logging only; never the secret). */
+function attemptedClientId(req: Request): string | undefined {
+  const basic = /^Basic (.+)$/i.exec(req.headers.authorization ?? '');
+  if (basic) {
+    try { return decodeURIComponent(Buffer.from(basic[1], 'base64').toString().split(':')[0]); } catch { return undefined; }
+  }
+  return typeof req.body?.client_id === 'string' ? req.body.client_id : undefined;
+}
+
+/**
+ * A friendly label for who a token request looks like, for the /portal live view. Based purely on which
+ * registered client_id authenticated (or tried to) -- retail-auth has no other way to tell callers apart.
+ * If the Okta MCP Bridge's resource connection to this portal was set up with the SAME client_id as
+ * RETAIL_AGENT_CLIENT_ID, its calls are indistinguishable from Direct XAA here: give it its own entry in
+ * RETAIL_AGENT_CLIENTS (and its own Okta resource connection) if you want it to show up as a separate caller.
+ */
+function callerLabel(clientId: string | undefined, grantType: string): string {
+  if (grantType === JWT_BEARER) {
+    if (clientId === CLIENT_ID) return 'Direct XAA (Ops Agent)';
+    if (clientId && clients.has(clientId)) return `Agent "${clientId}"`;
+    return clientId ? `Unrecognized agent "${clientId}"` : 'Unrecognized agent (no client_id)';
+  }
+  if (grantType === 'authorization_code' || grantType === 'refresh_token') {
+    return clientId === GW_CLIENT_ID ? 'Okta Agent Gateway (brokered consent)' : `Unrecognized gateway client "${clientId ?? ''}"`;
+  }
+  return `Unsupported grant "${grantType}"`;
+}
+
 const JWT_BEARER = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
 
 async function handleJwtBearer(req: Request, clientId: string) {
@@ -166,6 +198,15 @@ async function handleJwtBearer(req: Request, clientId: string) {
 
   const accessToken = await mintAccessToken({ sub: payload.sub, email: payload.email, clientId, scopes, role, idp: OKTA_ISSUER });
   console.log(`[auth] issued access token sub=${payload.sub} scope="${scopes.join(' ')}" ttl=${TOKEN_TTL}s`);
+  recordExchange({
+    grantType: JWT_BEARER,
+    clientId,
+    caller: callerLabel(clientId, JWT_BEARER),
+    decision: 'allow',
+    issuedScope: scopes.join(' '),
+    assertion: { iss: payload.iss, sub: payload.sub, email: payload.email, client_id: payload.client_id, scope: payload.scope, resource: payload.resource, exp: payload.exp },
+    accessToken: SHOW_TOKENS ? accessToken : undefined,
+  });
   return { access_token: accessToken, token_type: 'Bearer', expires_in: TOKEN_TTL, scope: scopes.join(' '), role };
 }
 
@@ -417,7 +458,9 @@ async function handleAuthCode(req: Request, clientId: string) {
   if (verifier.length < 43 || verifier.length > 128 || !safeEqual(challenge, rec.challenge)) {
     throw new OAuthError('invalid_grant', 'PKCE code_verifier does not match');
   }
-  return issueGatewayTokens(clientId, rec.sub, rec.email, rec.scopes);
+  const tokens = await issueGatewayTokens(clientId, rec.sub, rec.email, rec.scopes);
+  recordExchange({ grantType: 'authorization_code', clientId, caller: callerLabel(clientId, 'authorization_code'), decision: 'allow', issuedScope: tokens.scope, assertion: { sub: rec.sub, email: rec.email }, accessToken: SHOW_TOKENS ? tokens.access_token : undefined });
+  return tokens;
 }
 
 async function handleRefresh(req: Request, clientId: string) {
@@ -429,7 +472,9 @@ async function handleRefresh(req: Request, clientId: string) {
   const narrower = typeof req.body.scope === 'string' ? req.body.scope.split(/\s+/).filter(Boolean) : [];
   const scopes = narrower.length ? rec.scopes.filter((s) => narrower.includes(s)) : rec.scopes;
   if (scopes.length === 0) throw new OAuthError('invalid_scope', 'Requested scope is outside the original grant');
-  return issueGatewayTokens(clientId, rec.sub, rec.email, scopes);
+  const tokens = await issueGatewayTokens(clientId, rec.sub, rec.email, scopes);
+  recordExchange({ grantType: 'refresh_token', clientId, caller: callerLabel(clientId, 'refresh_token'), decision: 'allow', issuedScope: tokens.scope, assertion: { sub: rec.sub, email: rec.email }, accessToken: SHOW_TOKENS ? tokens.access_token : undefined });
+  return tokens;
 }
 
 const app = express();
@@ -469,14 +514,145 @@ app.post('/oauth/token', express.urlencoded({ extended: false }), async (req: Re
       throw new OAuthError('unsupported_grant_type', `Supported: ${JWT_BEARER}${gatewayClients.size ? ', authorization_code, refresh_token' : ''}`);
     }
   } catch (e) {
+    const grantType = typeof req.body?.grant_type === 'string' ? req.body.grant_type : '(missing grant_type)';
+    const clientId = attemptedClientId(req);
     if (e instanceof OAuthError) {
+      recordExchange({ grantType, clientId, caller: callerLabel(clientId, grantType), decision: 'deny', reason: `${e.error}: ${e.message}` });
       if (e.status === 401) res.set('WWW-Authenticate', 'Basic realm="retail-auth"');
       return void res.status(e.status).json({ error: e.error, error_description: e.message });
     }
     console.error(e);
+    recordExchange({ grantType, clientId, caller: callerLabel(clientId, grantType), decision: 'deny', reason: 'server_error' });
     res.status(500).json({ error: 'server_error' });
   }
 });
+
+// ---- live portal (demo; loopback only unless AUTH_PORTAL_PUBLIC=true) ------------------------
+const isLoopback = (a?: string) => !!a && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(a);
+const portalGuard = (req: Request, res: Response, next: NextFunction) => {
+  if (env('AUTH_PORTAL_PUBLIC', 'false') === 'true' || isLoopback(req.socket.remoteAddress)) return next();
+  res.status(403).send('The auth server portal is only available on localhost.');
+};
+app.get('/portal/data', portalGuard, (req, res) => res.json(getExchanges(Number(req.query.since ?? 0))));
+app.get('/portal', portalGuard, (_req, res) => {
+  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.send(portalPage());
+});
+
+function portalPage(): string {
+  const tokenWarning = SHOW_TOKENS
+    ? '<p class="warn">&#9888; AUTH_PORTAL_SHOW_TOKENS=true: rows below can reveal the raw access token, a live credential usable against the portal until it expires. Do not leave this page open to a shared screen longer than you need to.</p>'
+    : '';
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Retail Authorization Server — Live</title>
+<style>
+  body{font:14px/1.4 system-ui,sans-serif;background:#f4f5f7;margin:0;color:#222}
+  header{background:#01a982;color:#fff;padding:14px 20px;display:flex;align-items:center;gap:10px}
+  header .mark{background:#fff;color:#01a982;font-weight:700;padding:2px 8px;border-radius:4px}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  header .sub{opacity:.85;font-size:13px}
+  main{padding:20px;max-width:1200px;margin:0 auto}
+  .hint{color:#667;font-size:13px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px #0001}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #eef0f3;vertical-align:top}
+  th{background:#fafbfc;font-size:12px;text-transform:uppercase;color:#667;letter-spacing:.03em}
+  tr.deny{background:#fff7f7}
+  .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .badge.allow{background:#e2f6ef;color:#027a56}
+  .badge.deny{background:#fde8e8;color:#b42318}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .muted{color:#889}
+  details summary{cursor:pointer;color:#027a56;font-size:12px}
+  details.token summary{color:#b42318}
+  pre{white-space:pre-wrap;word-break:break-all;background:#f4f5f7;padding:8px;border-radius:6px;margin:6px 0 0;font-size:11.5px}
+  #empty{color:#889;padding:30px;text-align:center}
+  .warn{background:#fde8e8;color:#b42318;border:1px solid #f5c2c0;border-radius:6px;padding:8px 12px;font-size:13px;margin:0 0 14px}
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">HPE</span>
+  <div>
+    <h1>Retail Authorization Server &mdash; Live</h1>
+    <div class="sub">Every token request this server receives, newest first. Auto-refreshes.</div>
+  </div>
+</header>
+<main>
+  <p class="hint">
+    Shows Direct XAA and the Okta Agent Gateway (both call this server's <span class="mono">/oauth/token</span> directly), and
+    anything else that authenticates here, such as the Okta MCP Bridge's own XAA connection to the portal &mdash; if it
+    registered a distinct client_id. The on-behalf-of (OBO) exchange and the HR Agent A2A calls never reach this server:
+    they use Okta's own hosted authorization servers instead, so they will not appear below.
+  </p>
+  ${tokenWarning}
+  <table>
+    <thead><tr><th>Time</th><th>Caller</th><th>Grant</th><th>Client ID</th><th>Decision</th><th>Scope / Reason</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div id="empty">No token requests yet. Trigger one from an agent and it will appear here within a couple of seconds.</div>
+</main>
+<script>
+(function () {
+  var rowsEl = document.getElementById('rows');
+  var emptyEl = document.getElementById('empty');
+  var sinceId = 0;
+  var entries = [];
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function shortGrant(g) {
+    if (g === 'urn:ietf:params:oauth:grant-type:jwt-bearer') return 'jwt-bearer (ID-JAG)';
+    return g;
+  }
+
+  function renderRow(e) {
+    var cls = e.decision === 'deny' ? ' class="deny"' : '';
+    var badge = '<span class="badge ' + e.decision + '">' + esc(e.decision) + '</span>';
+    var scopeOrReason = e.decision === 'allow' ? esc(e.issuedScope || '') : esc(e.reason || '');
+    var detail = e.assertion ? ('<details><summary>claims</summary><pre>' + esc(JSON.stringify(e.assertion, null, 2)) + '</pre></details>') : '';
+    var tokenDetail = e.accessToken ? ('<details class="token"><summary>access token (live credential)</summary><pre>' + esc(e.accessToken) + '</pre></details>') : '';
+    return '<tr' + cls + '>' +
+      '<td class="mono muted">' + esc(new Date(e.ts).toLocaleTimeString()) + '</td>' +
+      '<td>' + esc(e.caller) + '</td>' +
+      '<td class="mono">' + esc(shortGrant(e.grantType)) + '</td>' +
+      '<td class="mono">' + esc(e.clientId || '') + '</td>' +
+      '<td>' + badge + '</td>' +
+      '<td class="mono">' + scopeOrReason + detail + tokenDetail + '</td>' +
+      '</tr>';
+  }
+
+  function render() {
+    emptyEl.style.display = entries.length ? 'none' : 'block';
+    rowsEl.innerHTML = entries.slice().reverse().map(renderRow).join('');
+  }
+
+  function poll() {
+    fetch('/portal/data?since=' + sinceId)
+      .then(function (r) { return r.json(); })
+      .then(function (fresh) {
+        if (fresh.length) {
+          entries = entries.concat(fresh).slice(-200);
+          sinceId = fresh[fresh.length - 1].id;
+          render();
+        }
+      })
+      .catch(function () { /* transient; next poll retries */ })
+      .then(function () { setTimeout(poll, 2000); });
+  }
+  poll();
+})();
+</script>
+</body>
+</html>`;
+}
 
 /** Warn if another program answers on the same port over IPv4 or IPv6 (both can be bound by different processes on Windows). */
 async function selfCheck() {
@@ -504,4 +680,5 @@ app.listen(PORT, () => {
       : '  Gateway sign-in: off (set RETAIL_GATEWAY_CLIENT_SECRET to enable the authorization-code flow)',
   );
   console.log(`  Issues tokens for: ${RESOURCE}`);
+  console.log(`  Live portal    : ${ISSUER}/portal  (demo view${env('AUTH_PORTAL_PUBLIC', 'false') === 'true' ? '' : ', localhost only'})`);
 });
