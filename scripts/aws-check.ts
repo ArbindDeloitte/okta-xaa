@@ -23,7 +23,7 @@ for (const url of targets) {
 }
 
 console.log('\n== Bedrock key expiry (decoded locally; secrets not printed) ==');
-for (const name of ['ANTHROPIC_API_KEY', 'BEDROCK_API_KEY']) {
+for (const name of ['ANTHROPIC_API_KEY', 'BEDROCK_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK']) {
   const key = e[name]?.trim();
   if (!key) { console.log(`  - ${name}: not set`); continue; }
   try {

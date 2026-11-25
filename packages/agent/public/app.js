@@ -7,6 +7,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const md = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
 
 const SUGGESTIONS = [
+  'How many PTO days does Priya Natarajan have left?',
   'Which orders are still processing?',
   'Do we have HPE-1001 (ProLiant DL380 Gen11) in stock in Singapore?',
   'Show me the details for order SO-10001',

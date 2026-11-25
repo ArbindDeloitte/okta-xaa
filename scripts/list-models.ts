@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 
 dotenv.config({ path: path.resolve(import.meta.dirname, '../.env'), quiet: true });
+if (!process.env.BEDROCK_API_KEY?.trim() && process.env.AWS_BEARER_TOKEN_BEDROCK?.trim()) {
+  process.env.BEDROCK_API_KEY = process.env.AWS_BEARER_TOKEN_BEDROCK.trim();
+}
 const key = process.env.ANTHROPIC_API_KEY?.trim() || process.env.BEDROCK_API_KEY?.trim();
 if (!key) { console.error('No ANTHROPIC_API_KEY / BEDROCK_API_KEY in .env'); process.exit(1); }
 console.log(`endpoint: ${process.env.ANTHROPIC_BASE_URL?.trim() || 'https://api.anthropic.com'}`);
