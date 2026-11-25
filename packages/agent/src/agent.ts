@@ -47,7 +47,7 @@ export function consentUrlFrom(text: string): string | undefined {
   }
 }
 
-const SYSTEM_PROMPT = (user: string) => `You are the HPE Order Operations Assistant, an AI agent that helps order-desk and support staff look up sales orders and enterprise accounts, check hardware stock across distribution centres, and handle cancellations and RMAs (return merchandise authorizations) by calling tools exposed by the HPE Order Portal. All data is sample demo data.
+const SYSTEM_PROMPT = (user: string, hasHr: boolean) => `You are the HPE Order Operations Assistant, an AI agent that helps order-desk and support staff look up sales orders and enterprise accounts, check hardware stock across distribution centres, and handle cancellations and RMAs (return merchandise authorizations) by calling tools exposed by the HPE Order Portal. All data is sample demo data.
 
 You are acting on behalf of ${user}. Access is governed centrally: the tools you can see, and what each is allowed to do, are decided by the company's identity provider (Okta Cross App Access) and by this user's role in the portal. Never try to work around a restriction.
 
@@ -55,7 +55,11 @@ Guidelines:
 - Use tools to get facts; never invent order numbers, stock levels, prices or account data.
 - If the user asks for something none of your tools can do, say plainly that you don't have access to that capability. If a tool call is denied (for example "forbidden_for_role" or "insufficient_scope"), explain that it's a permission limit and suggest who could approve it.
 - For actions that change data (cancel_order, create_return, which files an RMA), only act when the user has clearly asked for that action and given the details; otherwise ask. After acting, report the result, including any approval state.
-- Be concise. Use short bullet lists for multiple records. The chat window shows plain text with only **bold** and \`code\`, so do not use markdown tables or headings.`;
+- Be concise. Use short bullet lists for multiple records. The chat window shows plain text with only **bold** and \`code\`, so do not use markdown tables or headings.${
+  hasHr
+    ? "\n- You also have a separate tool, ask_hr_agent, that calls the HPE HR Agent (a different AI agent, reached over the Agent2Agent protocol, not an MCP tool) for HR questions: employee lookups, manager/department, and PTO (time off) balances or requests. Use it only for HR questions, never for order/portal data."
+    : ''
+}`;
 
 let anthropic: Anthropic | undefined;
 // Reads ANTHROPIC_BASE_URL from the environment (e.g. a Bedrock Mantle endpoint). BEDROCK_API_KEY is accepted
@@ -103,6 +107,10 @@ export async function runAgent(opts: {
   message: string;
   /** MCP endpoint to use instead of the portal's own (the Okta Agent Gateway URL). */
   mcpUrl?: string;
+  /** Optional: lets the model call the HPE HR Agent (A2A) as one more tool. Absent = the tool is not offered at
+   * all. The caller (index.ts, in either app) owns how the call is actually made -- direct Cross App Access, or
+   * via the Okta MCP Bridge -- this function only decides WHEN to call it and records it like any other tool. */
+  askHrAgent?: (task: string) => Promise<{ text: string; isError: boolean }>;
 }): Promise<{ reply: string; toolCalls: ToolCall[]; tools: ToolInfo[] }> {
   if (cfg.llm.provider === 'groq') {
     if (!cfg.llm.groq.apiKey) throw new Error('GROQ_API_KEY is not set. Add it to .env and restart.');
@@ -121,9 +129,15 @@ export async function runAgent(opts: {
       return { reply, toolCalls, tools: toolInfos };
     };
 
-    // Calls a Retail Portal tool over MCP and records it for the UI (shared by every LLM provider).
+    // Calls a Retail Portal tool over MCP, or the HR Agent over A2A, and records it for the UI (shared by every LLM provider).
     const callTool: CallTool = async (name, args) => {
       const t0 = Date.now();
+      if (name === 'ask_hr_agent') {
+        const task = String((args as { task?: unknown })?.task ?? '');
+        const r = opts.askHrAgent ? await opts.askHrAgent(task) : { text: 'The HR Agent is not configured on this server.', isError: true };
+        toolCalls.push({ name, args, result: r.text, isError: r.isError, ms: Date.now() - t0 });
+        return { text: r.text, isError: r.isError };
+      }
       let text = '';
       let isError = false;
       const attempt = async () => {
@@ -149,14 +163,20 @@ export async function runAgent(opts: {
       return { text, isError };
     };
 
+    // One extra local tool, offered only when the caller wired an askHrAgent function (index.ts, either app).
+    // Not an MCP tool: the model calls it like any other, but it is answered over the real A2A protocol instead.
+    const HR_TOOL_DESCRIPTION = 'Ask the HPE HR Agent an HR question: an employee lookup (title, department, manager) or a PTO (time off) balance or request. The HR Agent is a separate agent reached over A2A, not an MCP tool.';
+
     if (cfg.llm.provider === 'groq') {
-      const reply = await runOpenAiLoop({
-        system: SYSTEM_PROMPT(opts.userLabel),
-        history: opts.history,
-        message: opts.message,
-        tools: mcpTools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema as Record<string, unknown> })),
-        callTool,
-      });
+      const tools = mcpTools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema as Record<string, unknown> }));
+      if (opts.askHrAgent) {
+        tools.push({
+          name: 'ask_hr_agent',
+          description: HR_TOOL_DESCRIPTION,
+          inputSchema: { type: 'object', properties: { task: { type: 'string', description: 'The HR question or request, in plain language' } }, required: ['task'] },
+        });
+      }
+      const reply = await runOpenAiLoop({ system: SYSTEM_PROMPT(opts.userLabel, Boolean(opts.askHrAgent)), history: opts.history, message: opts.message, tools, callTool });
       return done(reply);
     }
 
@@ -165,6 +185,13 @@ export async function runAgent(opts: {
       description: t.description ?? '',
       input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema,
     }));
+    if (opts.askHrAgent) {
+      tools.push({
+        name: 'ask_hr_agent',
+        description: HR_TOOL_DESCRIPTION,
+        input_schema: { type: 'object', properties: { task: { type: 'string', description: 'The HR question or request, in plain language' } }, required: ['task'] } as Anthropic.Beta.BetaTool.InputSchema,
+      });
+    }
 
     const messages: Anthropic.Beta.BetaMessageParam[] = [
       ...opts.history.map((m) => ({ role: m.role, content: m.content })),
@@ -173,7 +200,7 @@ export async function runAgent(opts: {
 
     let reply = '';
     for (let round = 0; round < cfg.llm.maxToolRounds; round++) {
-      const params = { model: cfg.llm.model, max_tokens: 16000, system: SYSTEM_PROMPT(opts.userLabel), tools, messages };
+      const params = { model: cfg.llm.model, max_tokens: 16000, system: SYSTEM_PROMPT(opts.userLabel, Boolean(opts.askHrAgent)), tools, messages };
       const resp = cfg.llm.serverFallbacks
         ? await getAnthropic().beta.messages.create({
             ...params,

@@ -85,7 +85,10 @@ export function agentSigningKey(): Promise<CryptoKey> {
   return signingKey;
 }
 
-async function oktaClientAuth(tokenEndpoint: string): Promise<Record<string, string>> {
+/** Exported so a2a.ts can authenticate as this same agent at a SECOND authorization server (the HPE HR Agent's
+ * own custom AS) -- the assertion's `aud` is always the specific token endpoint it's presented to, so it is safe
+ * to call this again with a different endpoint. */
+export async function oktaClientAuth(tokenEndpoint: string): Promise<Record<string, string>> {
   if (cfg.okta.authMethod === 'client_secret') {
     return { client_id: cfg.okta.clientId, client_secret: cfg.okta.clientSecret! };
   }

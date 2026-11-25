@@ -26,6 +26,9 @@ function addMsg(kind, html) {
   return d;
 }
 
+// Tool names reached over A2A (Agent2Agent), not MCP -- add more here if more A2A tools are added later.
+const A2A_TOOLS = new Set(['ask_hr_agent']);
+
 function addCalls(calls) {
   if (!calls?.length) return;
   const wrap = document.createElement('div');
@@ -33,9 +36,10 @@ function addCalls(calls) {
   for (const c of calls) {
     let denied = false;
     try { const j = JSON.parse(c.result); denied = c.isError && (j.error === 'forbidden_for_role' || j.error === 'insufficient_scope'); } catch {}
+    const isA2a = A2A_TOOLS.has(c.name);
     const el = document.createElement('details');
-    el.className = 'call' + (denied ? ' denied' : '');
-    el.innerHTML = `<summary>🔧 <code>${esc(c.name)}</code><span class="tag ${c.isError ? 'bad' : 'ok'}">${denied ? 'denied' : c.isError ? 'error' : 'ok'}</span> <span class="muted">${esc(c.ms)}ms</span></summary>
+    el.className = 'call' + (isA2a ? ' a2a' : '') + (denied ? ' denied' : '');
+    el.innerHTML = `<summary><span class="proto ${isA2a ? 'a2a' : 'mcp'}">${isA2a ? 'A2A' : 'MCP'}</span> ${isA2a ? '🤝' : '🔧'} <code>${esc(c.name)}</code><span class="tag ${c.isError ? 'bad' : 'ok'}">${denied ? 'denied' : c.isError ? 'error' : 'ok'}</span> <span class="muted">${esc(c.ms)}ms</span></summary>
       <pre>${esc(JSON.stringify(c.args))}</pre><pre>${esc(c.result)}</pre>`;
     wrap.appendChild(el);
   }
@@ -58,6 +62,16 @@ function renderTrace(trace) {
 let mode = 'xaa';
 let gatewayInfo = { enabled: false, signedIn: false };
 let lastXaa = null; // what the governance panel showed in XAA mode, restored when switching back
+
+// Direct A2A to the HR Agent: a separate card, not folded into the portal's own scopes/status above -- it is a
+// different resource with its own scope grant (hr:read / hr:write), reached by a tool call, not by the mode
+// toggle (the model can use it alongside either Direct XAA or the Okta Agent Gateway in the same conversation).
+function renderHrGovernance(scope, expiresAt) {
+  $('hrScopes').innerHTML = scope?.length ? scope.map((s) => `<span>${esc(s)}</span>`).join('') : '<span class="muted">–</span>';
+  $('hrStatus').textContent = expiresAt
+    ? `Connected. HR Agent token valid until ${new Date(expiresAt).toLocaleTimeString()}.`
+    : 'Not connected yet. Ask an HR question (or the button) runs the exchange.';
+}
 
 function renderGovernance(scope, tools, expiresAt, role) {
   if (mode === 'gateway') {
@@ -156,6 +170,10 @@ async function init() {
   const label = me.user?.email || me.user?.name || me.user?.sub;
   $('who').innerHTML = `<span>${esc(label)}</span> · <span>${esc(me.model)}</span> <a class="btn small" href="/logout">Sign out</a>`;
   renderGovernance(me.retail?.scope, me.tools, me.retail?.expiresAt, me.retail?.role);
+  if (me.hrAgent?.enabled) {
+    $('hrCard').classList.remove('hidden');
+    renderHrGovernance(me.hrAgent.scope, me.hrAgent.expiresAt);
+  }
   gatewayInfo = me.gateway || gatewayInfo;
   if (gatewayInfo.enabled) {
     $('modeBox').classList.remove('hidden');
@@ -197,6 +215,7 @@ $('form').addEventListener('submit', async (e) => {
     addCalls(j.toolCalls);
     addMsg('bot', md(j.reply || '(no reply)'));
     renderGovernance(j.scope, j.tools, j.expiresAt, j.role);
+    if (j.hr) renderHrGovernance(j.hr.scope, j.hr.expiresAt);
   }
   $('send').disabled = false;
   $('input').focus();
@@ -217,6 +236,16 @@ $('connect').addEventListener('click', async () => {
   if (ok) renderGovernance(j.scope, j.tools, j.expiresAt, j.role);
   else { $('xstatus').textContent = j.message || 'XAA exchange failed.'; handleAuthExpired(j); }
   $('connect').disabled = false;
+});
+
+$('hrConnect')?.addEventListener('click', async () => {
+  $('hrConnect').disabled = true;
+  $('hrStatus').textContent = 'Running the HR Agent token exchange…';
+  const { ok, j } = await api('/api/hr/connect', {});
+  renderTrace(j.trace);
+  if (ok) renderHrGovernance(j.scope, j.expiresAt);
+  else { $('hrStatus').textContent = j.message || 'HR Agent exchange failed.'; handleAuthExpired(j); }
+  $('hrConnect').disabled = false;
 });
 
 $('reset').addEventListener('click', async () => {

@@ -11,7 +11,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "concurrently -k -n agent,obo,bridge,auth,portal -c cyan,blue,yellow,magenta,green \"npm:dev:agent\" \"npm:dev:agent-obo\" \"npm:dev:agent-bridge\" \"npm:dev:auth\" \"npm:dev:portal\"",
+    "start": "concurrently -k -n agent,obo,bridge,hr,auth,portal -c cyan,blue,yellow,red,magenta,green \"npm:dev:agent\" \"npm:dev:agent-obo\" \"npm:dev:agent-bridge\" \"npm:dev:agent-hr\" \"npm:dev:auth\" \"npm:dev:portal\"",
     "dev:agent": "npm run dev -w @xaa/agent",
     "dev:agent-limited": "npm run dev:limited -w @xaa/agent",
     "start:both": "concurrently -k -n agent,limited,auth,portal -c cyan,yellow,magenta,green \"npm:dev:agent\" \"npm:dev:agent-limited\" \"npm:dev:auth\" \"npm:dev:portal\"",
@@ -22,7 +22,7 @@
     "dev:portal": "npm run dev -w @xaa/retail-portal",
     "gen:key": "tsx scripts/gen-agent-key.ts",
     "show:key": "tsx scripts/gen-agent-key.ts --public",
-    "typecheck": "tsc -p packages/agent --noEmit && tsc -p packages/agent-obo --noEmit && tsc -p packages/agent-bridge --noEmit && tsc -p packages/retail-auth --noEmit && tsc -p packages/retail-portal --noEmit",
+    "typecheck": "tsc -p packages/agent --noEmit && tsc -p packages/agent-obo --noEmit && tsc -p packages/agent-bridge --noEmit && tsc -p packages/agent-hr --noEmit && tsc -p packages/retail-auth --noEmit && tsc -p packages/retail-portal --noEmit",
     "check:env": "tsx scripts/check-env.ts",
     "check:aws": "tsx scripts/aws-check.ts",
     "list:models": "tsx scripts/list-models.ts",
@@ -32,7 +32,9 @@
     "test:obo": "tsx scripts/e2e-obo.ts",
     "dev:agent-bridge": "npm run dev -w @xaa/agent-bridge",
     "start:bridge": "npm run dev:agent-bridge",
-    "test:bridge": "tsx scripts/e2e-bridge.ts"
+    "test:bridge": "tsx scripts/e2e-bridge.ts",
+    "dev:agent-hr": "npm run dev -w @xaa/agent-hr",
+    "test:a2a": "tsx scripts/e2e-a2a.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

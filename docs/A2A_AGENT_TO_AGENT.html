@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent-to-agent (A2A) guide</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --card:#ffffff; --ink:#18212b; --mute:#5f6b7a; --line:#e2e6ec;
+    --brand:#0a58e6; --brand-soft:#e8f0fe; --code-bg:#0f1720; --code-ink:#e6edf3;
+    --ok:#067647; --ok-bg:#ecfdf3; --warn:#b54708; --warn-bg:#fffaeb; --bad:#b42318; --bad-bg:#fef3f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0e131a; --card:#161d26; --ink:#e6ebf2; --mute:#98a3b3; --line:#27313d;
+      --brand:#7aa7ff; --brand-soft:#17233b; --code-bg:#0a0f15; --code-ink:#e6edf3;
+      --ok:#6ce9a6; --ok-bg:#0c2a1c; --warn:#fec84b; --warn-bg:#2b2108; --bad:#fda29b; --bad-bg:#2e1412;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0e131a; --card:#161d26; --ink:#e6ebf2; --mute:#98a3b3; --line:#27313d;
+    --brand:#7aa7ff; --brand-soft:#17233b; --code-bg:#0a0f15; --code-ink:#e6edf3;
+    --ok:#6ce9a6; --ok-bg:#0c2a1c; --warn:#fec84b; --warn-bg:#2b2108; --bad:#fda29b; --bad-bg:#2e1412;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  a { color:var(--brand); }
+  code { font:0.88em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--brand-soft); padding:1px 6px; border-radius:5px; word-break:break-word; }
+  pre { position:relative; margin:12px 0; padding:14px 16px; background:var(--code-bg); color:var(--code-ink); border-radius:10px; overflow-x:auto; font:13.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre code { background:none; padding:0; color:inherit; font:inherit; word-break:normal; }
+  .copy { position:absolute; top:8px; right:8px; border:1px solid #3a4655; background:#1b2430; color:#c9d4e0; border-radius:6px; font:12px system-ui; padding:3px 9px; cursor:pointer; }
+  .copy:hover { border-color:#7aa7ff; }
+
+  .shell { max-width:1120px; margin:0 auto; padding:0 16px 64px; display:grid; grid-template-columns:250px minmax(0,1fr); gap:32px; }
+  @media (max-width:880px) { .shell { grid-template-columns:1fr; } nav.toc { position:static; } }
+  header.hero { grid-column:1 / -1; padding:36px 0 8px; }
+  .hero h1 { margin:0 0 6px; font-size:clamp(26px,4vw,36px); line-height:1.2; }
+  .hero p { margin:0; color:var(--mute); max-width:76ch; }
+  .tools { display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; }
+  .btn { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; padding:6px 12px; font:inherit; font-size:14px; cursor:pointer; }
+  .btn:hover { border-color:var(--brand); }
+  .progress { flex:1; min-width:160px; max-width:320px; height:8px; background:var(--line); border-radius:99px; overflow:hidden; }
+  .progress > i { display:block; height:100%; width:0; background:var(--ok); transition:width .25s; }
+  #ptext { font-size:13px; color:var(--mute); }
+  .badge { display:inline-block; font-size:12.5px; font-weight:600; padding:3px 10px; border-radius:99px; background:var(--warn-bg); color:var(--warn); margin-left:8px; vertical-align:2px; }
+  .badge.ok { background:var(--ok-bg); color:var(--ok); }
+  .badge.bad { background:var(--bad-bg); color:var(--bad); }
+
+  nav.toc { position:sticky; top:20px; align-self:start; font-size:14px; }
+  nav.toc ol { list-style:none; margin:0; padding:0; border-left:2px solid var(--line); }
+  nav.toc a { display:block; padding:5px 12px; color:var(--mute); text-decoration:none; border-left:2px solid transparent; margin-left:-2px; }
+  nav.toc a:hover, nav.toc a.on { color:var(--brand); border-left-color:var(--brand); }
+
+  main section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px 24px; margin:0 0 18px; }
+  main h2 { margin:0 0 4px; font-size:22px; line-height:1.3; }
+  main h2 .n { display:inline-grid; place-items:center; width:30px; height:30px; margin-right:10px; border-radius:50%; background:var(--brand); color:#fff; font-size:15px; vertical-align:2px; }
+  main h3 { margin:22px 0 6px; font-size:16px; }
+  main p { margin:8px 0; }
+  .lead { color:var(--mute); }
+  ol.steps { list-style:none; counter-reset:s; margin:14px 0 0; padding:0; }
+  ol.steps > li { counter-increment:s; display:grid; grid-template-columns:26px 1fr; column-gap:12px; padding:10px 0; border-top:1px solid var(--line); }
+  ol.steps > li:first-child { border-top:0; }
+  ol.steps > li > input { margin:5px 0 0; width:18px; height:18px; accent-color:var(--ok); cursor:pointer; }
+  ol.steps > li > div > ul { margin:6px 0 0; padding-left:20px; }
+  ol.steps > li > div > ul li { margin:3px 0; }
+  ol.steps > li.done > div { opacity:.75; }
+
+  ul.status { list-style:none; counter-reset:s; margin:14px 0 0; padding:0; }
+  ul.status > li { display:grid; grid-template-columns:26px 1fr; column-gap:12px; padding:9px 0; border-top:1px solid var(--line); }
+  ul.status > li:first-child { border-top:0; }
+  ul.status > li > .ic { font-size:16px; line-height:1.6; }
+  ul.status > li.na > div { opacity:.7; }
+
+  .callout { border-radius:10px; padding:11px 14px; margin:14px 0; font-size:15px; border:1px solid; }
+  .callout.info { background:var(--brand-soft); border-color:transparent; }
+  .callout.warn { background:var(--warn-bg); border-color:transparent; color:var(--ink); }
+  .callout b.k { color:var(--warn); }
+  .callout.ok { background:var(--ok-bg); border-color:transparent; }
+  .callout.bad { background:var(--bad-bg); border-color:transparent; color:var(--ink); }
+  .callout b.bad-k { color:var(--bad); }
+  .callout blockquote { margin:8px 0 0; padding-left:12px; border-left:3px solid var(--bad); font-style:italic; }
+
+  .tablewrap { overflow-x:auto; margin:12px 0; border:1px solid var(--line); border-radius:10px; }
+  table { border-collapse:collapse; width:100%; font-size:14.5px; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:var(--bg); color:var(--mute); font-size:12px; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; }
+  tr:last-child td { border-bottom:0; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+  .chips code { background:var(--bg); border:1px solid var(--line); }
+  .diagram { font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre; overflow-x:auto; }
+  footer { grid-column:1 / -1; color:var(--mute); font-size:13.5px; padding-top:6px; }
+  footer ul { margin:6px 0; padding-left:20px; }
+  @media print { nav.toc, .tools, .copy { display:none !important; } .shell { display:block; } main section { break-inside:avoid; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="hero">
+    <h1>Agent-to-agent (A2A): implementation &amp; setup guide</h1>
+    <p>Two ways for an agent in this project to call <b>another agent</b> instead of a portal or tool server: direct
+       (<code>packages/agent</code> speaks the real A2A wire protocol, secured by the same Okta XAA mechanism already in
+       <code>xaa.ts</code>) and via the Okta MCP Bridge (<code>packages/agent-bridge</code> would let the Bridge broker the
+       call, the same way it already brokers MCP). Both needed one new agent to call — this project built that agent
+       (<b>HPE HR Agent</b>, <code>packages/agent-hr</code>) and both call paths into it.</p>
+    <div class="tablewrap" style="margin-top:14px;"><table>
+      <tr><th>Path</th><th>Status</th></tr>
+      <tr><td><b>Direct</b><br/><span class="lead" style="font-size:13px;">packages/agent → packages/agent-hr</span></td>
+        <td><span class="badge ok">✅ built &amp; confirmed working</span><br/>
+          Tested hermetically and live (<code>scripts/e2e-a2a.ts</code>), confirmed against real Okta: lookups,
+          scope-gated writes, live chat demo.</td></tr>
+      <tr><td><b>Via the Okta MCP Bridge</b><br/><span class="lead" style="font-size:13px;">packages/agent-bridge → Bridge → packages/agent-hr</span></td>
+        <td><span class="badge bad">⛔ confirmed blocked, upstream</span><br/>
+          Every Okta-side step succeeds; the Bridge's own adapter refuses to route <code>IDENTITY_ASSERTION_A2A_SERVER</code>
+          connections. No app code written for this path — see <a href="#s6">§6</a>.</td></tr>
+    </table></div>
+    <div class="tools">
+      <div class="progress" aria-hidden="true"><i id="pbar"></i></div>
+      <span id="ptext">0 of 0 steps done</span>
+      <button class="btn" id="reset" type="button">Reset checklist</button>
+      <button class="btn" id="theme" type="button">Toggle theme</button>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <ol>
+      <li><a href="#summary">Summary</a></li>
+      <li><a href="#s1">1 · A2A vs MCP</a></li>
+      <li><a href="#s2">2 · How Okta secures it</a></li>
+      <li><a href="#s3">3 · Architecture</a></li>
+      <li><a href="#s4">4 · The HR Agent</a></li>
+      <li><a href="#s5">5 · Path 1 · Direct ✅</a></li>
+      <li><a href="#s6">6 · Path 2 · Via Bridge ⛔</a></li>
+      <li><a href="#s7">7 · Okta console setup</a></li>
+      <li><a href="#s8">8 · What shipped</a></li>
+      <li><a href="#s9">9 · Security notes</a></li>
+      <li><a href="#s10">10 · Testing</a></li>
+      <li><a href="#s11">11 · Open items</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section id="summary">
+      <h2>Summary</h2>
+      <ul>
+        <li><b><code>packages/agent-hr</code></b> (port 3400): a small LLM-backed agent over a toy in-memory HR
+          dataset, reachable over the real A2A protocol (<code>@a2a-js/sdk</code>), not MCP. It never talks to Okta
+          itself — it only verifies bearer tokens.</li>
+        <li><b>Direct path:</b> <code>packages/agent/src/a2a.ts</code>, structured like <code>xaa.ts</code>, does the
+          same two-step Okta exchange (org AS token-exchange → ID-JAG → target's custom AS jwt-bearer), then calls
+          <code>message/send</code> on the HR Agent with the resulting token. Surfaced to the model as one local tool,
+          <code>ask_hr_agent</code>, alongside the existing MCP tools. The UI visibly distinguishes A2A tool calls
+          from MCP ones (a colored badge/border in the trace log) so a viewer can tell the two governance stories
+          apart at a glance.</li>
+        <li><b>Bridge path:</b> fully specified and partially wired on the Okta/Bridge side, but not implemented in
+          code — the Bridge's adapter cannot currently route the connection type this requires.</li>
+        <li><b>One new Okta object:</b> <b>HPE HR Agent</b>, registered as a second AI Agent with its own Okta-native
+          custom authorization server. No new registration for the direct-path caller — the existing Retail Ops Agent
+          identity is reused, with one new resource connection pointed at the HR Agent.</li>
+      </ul>
+    </section>
+
+    <section id="s1">
+      <h2><span class="n">1</span>What A2A is, and how it differs from MCP</h2>
+      <p>MCP connects an agent to <b>tools and data</b>: a fixed, structured, schema-typed function list the server defines
+        and the client calls deterministically — everything else in this repo (the Retail Portal MCP server, the
+        Bridge's virtual MCP endpoint) is this shape. <b>A2A (Agent2Agent protocol)</b> connects an agent to
+        <b>another agent</b>: the message you send is a free-text task, not a function call, and the thing answering can
+        reason, decide it needs more information, run its own tools internally, or take a while — the protocol has task
+        states for that (<code>submitted</code>, <code>working</code>, <code>input-required</code>, <code>completed</code>,
+        <code>failed</code>, …). The two are complementary, not competing: an A2A agent is free to be an MCP client
+        internally (ours is not, by design — §4).</p>
+      <ul>
+        <li>Every A2A server publishes an <b>Agent Card</b>, a JSON document at
+          <code>/.well-known/agent-card.json</code>, describing its name, description, where to reach it
+          (<code>supportedInterfaces[].url</code> in the SDK version used here, not a top-level <code>url</code>), and
+          the "skills" it exposes.</li>
+        <li>The primary operation is the JSON-RPC 2.0 method <code>message/send</code>: POST a <code>Message</code> (a role
+          plus one or more <code>parts</code>, typically a text part) and get back either an immediate <code>Message</code>
+          reply or a <code>Task</code>. This project uses <code>message/send</code> only — it fits the existing synchronous
+          tool-call loop in <code>agent.ts</code> with no restructuring.</li>
+        <li><b>SDK used: <code>@a2a-js/sdk</code> v1.3.0.</b> Server side: <code>DefaultRequestHandler</code>,
+          <code>InMemoryTaskStore</code>, an <code>AgentExecutor</code> you implement, mounted behind Express via
+          <code>agentCardHandler</code>/<code>jsonRpcHandler</code> (<code>@a2a-js/sdk/server/express</code>). Client
+          side: <code>ClientFactory</code>, <code>JsonRpcTransportFactory</code>, <code>DefaultAgentCardResolver</code>,
+          <code>createAuthenticatingFetchWithRetry</code>. Auth hook: a <code>UserBuilder</code> —
+          <code>(req) =&gt; Promise&lt;User&gt;</code> — is where this project's bearer-token verification plugs in
+          (<code>packages/agent-hr/src/auth.ts</code>).</li>
+      </ul>
+    </section>
+
+    <section id="s2">
+      <h2><span class="n">2</span>How Okta secures agent-to-agent calls</h2>
+      <p>Console name: <b>"Connect to another AI Agent"</b>, connection type
+        <b>"Cross App Access (Agent-to-agent)"</b> (internal identifier <code>IDENTITY_ASSERTION_A2A_SERVER</code> —
+        this exact string is also what the Bridge's own console shows when it cannot route a connection of this type;
+        see §6).</p>
+      <p>The mechanics are the same two-step exchange <code>xaa.ts</code> already implements for ordinary XAA, just
+        retargeted — <b>with two corrections versus the original plan, both confirmed live against real Okta and real
+        errors.</b></p>
+      <h3>Step 1 — token exchange at Okta's org authorization server (RFC 8693)</h3>
+      <div class="tablewrap"><table>
+        <tr><th>Parameter</th><th>Value</th></tr>
+        <tr><td><code>grant_type</code></td><td><code>urn:ietf:params:oauth:grant-type:token-exchange</code></td></tr>
+        <tr><td><code>subject_token_type</code></td><td><code>urn:ietf:params:oauth:token-type:id_token</code> —
+          <b>confirmed required.</b> Ordinary XAA's <code>performXaa</code> defaults to <code>refresh_token</code> and
+          that works fine there; this flow rejected a refresh token and needed the ID token specifically.</td></tr>
+        <tr><td><code>requested_token_type</code></td><td><code>urn:ietf:params:oauth:token-type:id-jag</code> — the
+          same ID-JAG type, no distinct agent-to-agent token type</td></tr>
+        <tr><td><code>audience</code></td><td>the target agent's own <b>custom authorization server issuer URL</b>
+          (<code>https://{yourOktaDomain}/oauth2/{authServerId}</code>)</td></tr>
+        <tr><td><code>resource</code></td><td><b>the SAME value as <code>audience</code></b> — not the target agent's
+          plain base/resource URL. The original plan assumed <code>resource</code> should be the agent's own resource
+          URL (e.g. <code>http://localhost:3400</code>), mirroring ordinary XAA. That produced
+          <code>invalid_target: Token Exchange requests must include a valid audience of the authorization server</code>.
+          Setting <code>resource</code> equal to <code>audience</code> is the confirmed working shape, per Okta's own
+          System Log.</td></tr>
+        <tr><td>client auth</td><td><code>client_assertion_type</code>/<code>client_assertion</code>, private_key_jwt,
+          signed with the key created at AI-agent registration</td></tr>
+      </table></div>
+      <p>Response: an ID-JAG, 5 minutes, single-use — identical shape to the one <code>retail-auth</code> already
+        validates.</p>
+      <h3>Step 2 — JWT Bearer grant at the target's own custom authorization server (RFC 7523)</h3>
+      <p><code>grant_type = urn:ietf:params:oauth:grant-type:jwt-bearer</code>, <code>assertion</code> = the ID-JAG, at
+        <code>https://{yourOktaDomain}/oauth2/{authServerId}/v1/token</code> — an <b>Okta-hosted custom AS object</b>
+        (an <code>aus…</code> id), not a hand-built server like <code>retail-auth</code>.</p>
+      <div class="callout warn"><b class="k">Confirmed gotcha — Access Policy client assignment.</b> The target AS's
+        Access Policy has its own "Assigned to clients" scoping, separate from the delegation link itself. A
+        delegation can succeed at the org-AS step (you get a valid ID-JAG) and still fail here with
+        <code>no_matching_policy</code> → <code>access_denied</code> if the calling client isn't on the policy's
+        allowed-clients list. This bit twice during this build. <b>Every new caller needs to be added to this list
+        explicitly — it is not automatic, even once the delegation shows as connected.</b> Diagnosable via Okta's
+        System Log: <code>LegacyEventType app.oauth2.as.token.grant_failure</code>, DebugData fields
+        <code>AuthorizationServerAudience</code> / <code>ResourceType</code> (<code>A2A_RESOURCE_URL</code> /
+        <code>STATIC_AS_AUDIENCE</code>).</div>
+      <p><b>Access token audience:</b> the minted token's <code>aud</code> claim, observed live, did not
+        unambiguously confirm whether Okta carries the <code>resource</code> parameter through to the final token or
+        instead stamps the custom AS's own statically-configured "Default Audience" — this did not need resolving:
+        <code>packages/agent-hr/src/auth.ts</code> accepts <b>either</b> value (<code>HR_AGENT_URL</code> /
+        the Default Audience, <b>or</b> the AS's own issuer URL) as valid.</p>
+      <h3>Setup — confirmed</h3>
+      <ul>
+        <li>Both sides must be <b>registered AI Agents</b> in the Okta directory — the resource picker in "Connect to
+          another AI Agent" only lists AI agents, not plain Applications.</li>
+        <li>The target's custom AS must define the custom scopes (<code>hr:read</code>, <code>hr:write</code>), and
+          its Access Policy must allow the JWT Bearer grant type <b>and</b> list the calling client (see the gotcha
+          above).</li>
+        <li>Okta's own wizard configures both the caller and the resource side in one step. The audience/resource URL
+          it captures <b>locks in</b> for every future delegation to that same resource — get it right the first time
+          (the exact value you intend to put in <code>.env</code> as <code>HR_AGENT_URL</code>/the AS's Default
+          Audience, not a placeholder).</li>
+        <li>Each registered AI agent gets its own OIDC app + key pair at registration. The HR Agent only ever
+          <b>receives</b> calls, so it never needed that key for anything our own code does.</li>
+      </ul>
+      <p>A second, separate thing shares the word "A2A": the <b>MCP Bridge's own <code>Resource</code> type</b> (the
+        "Create resource" dialog, Type = <code>A2A</code>) — the Bridge product's own resource catalog entry, used
+        for its <i>own</i> proxying model (§6). Both are needed together for the Bridge path in principle: the
+        Okta-native delegation governs authorization, the Bridge's Resource + Managed Connection governs HTTP
+        routing. As §6 found, the routing half isn't implemented yet. One UI note: the "Create resource" dialog's
+        "MCP Protocol Version" field is a leftover from a form shared with MCP resources — it does not apply when Type
+        is A2A; leave it blank.</p>
+    </section>
+
+    <section id="s3">
+      <h2><span class="n">3</span>Architecture: one new agent, two call paths</h2>
+      <div class="diagram">                                    ┌─────────────────────────────────────────────┐
+                                    │   HPE HR Agent  (packages/agent-hr, :3400)   │
+                                    │   @a2a-js/sdk server + its own small LLM     │
+                                    │   loop over a toy in-memory HR dataset       │
+                                    │   verifies Bearer tokens; never calls Okta   │
+                                    └───────────────▲───────────────▲─────────────┘
+                                                     │               │
+                   DIRECT A2A  ✅ working            │               │   VIA BRIDGE  ⛔ blocked by the Bridge's adapter
+  Retail Ops Agent (packages/agent, :3000)            │               │  HPE Ops Agent (Bridge) (packages/agent-bridge, :3300)
+  ├─ reuses this user's ID token                       │              ├─ would reuse its existing Bridge OAuth session token
+  ├─ Okta org AS: token-exchange → ID-JAG               │             ├─ Okta MCP Bridge: Resource "HPE HR Agent" (type A2A)
+  ├─ HR Agent's custom AS: jwt-bearer → HR access token  │               + Managed Connection — both configured successfully
+  └─ message/send (A2A), Bearer HR access token ─────────┘            └─ but the Bridge adapter refuses to route this
+                                                                          connection type — nothing calls through it</div>
+      <p class="lead">Both callers expose (or would expose) the same thing to the model: a local tool
+        <code>ask_hr_agent(task: string)</code>. The model decides when a question needs the HR Agent and calls it
+        like any other tool; only the plumbing underneath differs by app. Only the direct path's tool is actually
+        wired up and callable today.</p>
+    </section>
+
+    <section id="s4">
+      <h2><span class="n">4</span>The new component: HPE HR Agent (<code>packages/agent-hr</code>)</h2>
+      <p>A deliberately small LLM-backed agent, not just a deterministic function server — that distinction is the whole
+        point of an A2A demo instead of one more MCP server. Port 3400 (3000 / 3200 / 3300 / 3400).</p>
+      <ul>
+        <li><b>Data</b> (<code>src/data.ts</code>): 5 fictional employees (name, title, department, manager, email,
+          PTO balance) in a mutable in-memory array.</li>
+        <li><b>Skills</b> (<code>src/skills.ts</code>): <code>lookup_employee</code> (scope <code>hr:read</code>) and
+          <code>update_pto_request</code> (scope <code>hr:write</code>) — a read scope and a write scope, exactly as
+          the retail scopes already demonstrate. Each skill's required scope is enforced against the verified
+          caller's granted scopes before the skill runs.</li>
+        <li><b>Its own small LLM loop</b> (<code>src/llm.ts</code>): receives the free-text <code>task</code>, runs
+          one bounded round of Claude tool-use against the two skills, then a final text turn — no open-ended
+          agentic loop. Reuses the same Bedrock/<code>ANTHROPIC_BASE_URL</code> wiring style as
+          <code>packages/agent/src/config.ts</code>, including the <code>AWS_BEARER_TOKEN_BEDROCK</code> →
+          <code>BEDROCK_API_KEY</code> fallback mapping (this agent runs as its own process with its own config, so
+          that mapping had to be copied here too — missing it caused a confusing "ANTHROPIC_API_KEY (or
+          BEDROCK_API_KEY) is not set" error even once Okta auth was already passing).</li>
+        <li><b>Agent Card</b> (<code>src/card.ts</code>) at <code>/.well-known/agent-card.json</code>: name "HPE HR
+          Agent", <code>supportedInterfaces[0].url</code> pointing at <code>HR_AGENT_URL</code>, Bearer security
+          scheme, the two skills with per-skill security requirements.</li>
+        <li><b>Token verification</b> (<code>src/auth.ts</code>): <code>createRemoteJWKSet</code> +
+          <code>jwtVerify</code> against <code>HR_AGENT_AUTH_ISSUER</code>, accepting either <code>HR_AGENT_URL</code>
+          or <code>HR_AGENT_AUTH_ISSUER</code> as a valid <code>aud</code> (§2). No session, no sign-in page, no
+          cookies. On a verification failure it still decodes (without verifying) and logs the claims plus the
+          expected audiences, so a bad token's actual shape is visible without turning on
+          <code>HR_AGENT_LOG_CLAIMS</code>.</li>
+        <li><b>Demo HR portal</b> (<code>public/index.html</code>, served at <code>/portal</code>): a presentable,
+          auto-refreshing read/write view of the same in-memory data the agent reads and writes — a live PTO approval
+          made through chat shows up here within ~2 seconds, no refresh needed. Supports inline edit, quick +/- PTO
+          adjustment, and adding new demo records. Loopback-only unless <code>HR_PORTAL_PUBLIC=true</code> (same
+          default pattern as <code>packages/retail-portal</code>'s own admin console).</li>
+      </ul>
+      <div class="callout info">A dev tunnel forwards through a local process that still looks like loopback traffic
+        to Express, so the portal's loopback guard does not meaningfully block tunnel-forwarded requests — low risk
+        given an unguessable tunnel URL, but worth knowing if <code>HR_AGENT_URL</code> is ever pointed at a public
+        tunnel.</div>
+      <div class="tablewrap"><table>
+        <tr><th>Env var</th><th>Meaning</th><th>Default</th></tr>
+        <tr><td><code>AGENT_HR_PORT</code></td><td>Port this agent listens on</td><td><code>3400</code></td></tr>
+        <tr><td><code>AGENT_HR_BASE_URL</code></td><td>This process's own base URL, used in its startup log only</td><td><code>http://localhost:3400</code></td></tr>
+        <tr><td><code>HR_AGENT_URL</code></td><td>This agent's own resource/audience URL — must match the custom AS's
+          "Default Audience." Also what the Agent Card advertises as where to send <code>message/send</code> calls, so
+          it must be reachable by whoever calls it (localhost is fine for the direct path).</td><td><code>http://localhost:3400</code></td></tr>
+        <tr><td><code>HR_AGENT_AUTH_ISSUER</code></td><td>The Okta custom authorization server issuer that mints this
+          agent's callers' tokens</td><td><i>required — no default</i></td></tr>
+        <tr><td><code>HR_AGENT_SCOPES</code></td><td>Scopes this agent's skills are gated by</td><td><code>hr:read hr:write</code></td></tr>
+        <tr><td><code>HR_AGENT_LOG_CLAIMS</code></td><td>Set to <code>claims</code> to log every verified caller's decoded claims</td><td><i>off</i></td></tr>
+        <tr><td><code>HR_PORTAL_PUBLIC</code></td><td>Set to <code>true</code> to allow non-loopback access to <code>/portal</code></td><td><code>false</code></td></tr>
+      </table></div>
+      <p class="lead">npm scripts: <code>npm run dev -w @xaa/agent-hr</code> (also <code>npm run dev:agent-hr</code>),
+        <code>npm run test:a2a</code> for the e2e suite.</p>
+    </section>
+
+    <section id="s5">
+      <h2><span class="n">5</span>Path 1 — direct A2A in <code>packages/agent</code> <span class="badge ok">built, working</span></h2>
+      <p><code>packages/agent/src/a2a.ts</code>, structured like <code>xaa.ts</code>:</p>
+      <ul>
+        <li>Reuses <code>oktaClientAuth()</code> from <code>xaa.ts</code> unchanged — same Okta org, same existing
+          agent registration. No new Okta AI Agent was needed for this caller; only the HR Agent side is new.</li>
+        <li><code>performA2aExchange(tokens, trace)</code> does the two-step exchange from §2 (the corrected
+          <code>resource = audience</code> shape, the <code>id_token</code> subject type), with the same
+          scope-narrowing retry on <code>invalid_scope</code> that <code>performXaa</code> already uses, returning
+          <code>{ accessToken, scope, expiresAt }</code>. Appends the same kind of human-readable
+          <code>TraceStep</code>s the existing governance panel already renders.</li>
+        <li><code>callAgentOverA2a(baseUrl, task, getToken)</code>: caches only the Agent Card per base URL (never a
+          <code>Client</code>), builds a fresh authenticated fetch + <code>ClientFactory</code> + <code>Client</code>
+          per call, so tokens never cross-contaminate between calls or sessions.</li>
+      </ul>
+      <p><b>Integration into the existing chat loop</b> (<code>agent.ts</code>): one new local tool,
+        <code>ask_hr_agent</code>, offered to the model alongside the MCP tools whenever an <code>askHrAgent</code>
+        callback is supplied — both the Groq and Anthropic tool-building paths support it. <code>callTool</code>
+        special-cases this name before the MCP branch. Everything else in <code>runAgent</code> — the tool-round
+        loop, the trace, the UI — is unchanged.</p>
+      <p><b>Session wiring</b> (<code>index.ts</code>): <code>ensureHrAccess(req, trace)</code> caches the HR access
+        token on <code>req.session.hr</code>, reusing the session's ID token (never the refresh token — Okta doesn't
+        rotate it). A shared <code>withRefreshLock(sessionID, fn)</code> mutex serializes this alongside the retail
+        exchange, since both touch the same session tokens. <code>POST /api/hr/connect</code> mirrors
+        <code>/api/xaa/connect</code>; <code>/api/me</code> and every <code>/api/chat</code> response include the HR
+        Agent's granted scope and expiry.</p>
+      <p><b>UI:</b> a new "HR Agent (A2A)" card next to the Cross App Access card, showing granted scopes and a
+        manual "Run HR Agent exchange" button. In the tool-call trace log, A2A calls get a distinct colored left
+        border and an <code>A2A</code> badge (vs. an <code>MCP</code> badge on ordinary tool calls) so a viewer can
+        tell the two protocols apart at a glance — added specifically so a client audience can see the governance
+        difference, not just read about it.</p>
+    </section>
+
+    <section id="s6">
+      <h2><span class="n">6</span>Path 2 — via the Okta MCP Bridge <span class="badge bad">confirmed blocked</span></h2>
+      <p>The Bridge already proxies MCP: it resolves a URL on its <b>own domain</b> and the agent's MCP client
+        connects to <i>that</i>, not the portal's real URL — the Bridge is a full terminating proxy that does the
+        Okta exchange, then relays to the real server. The original plan expected the same shape to hold for A2A. It
+        does not, today.</p>
+      <h3>What was configured, and worked</h3>
+      <ol class="steps">
+        <li data-k="b6.1"><div><b>Bridge Resource.</b> Resources → Create resource, Type <code>A2A</code>, Name
+          <code>hr-system</code>, URL = the HR Agent's own base URL (a dev tunnel was used so the Bridge's remote
+          infrastructure could reach a locally-running agent — the same reason <code>retail-auth</code>/
+          <code>retail-portal</code> already use tunnels rather than <code>localhost</code>).</div></li>
+        <li data-k="b6.2"><div><b>Managed Connection.</b> On the Bridge's own AI Agent's detail page → Resource
+          connections → Add resource connection → <b>Connect to another AI agent</b> → select HPE HR Agent. This
+          single flow auto-filled the Authorization server and Audience/resource URL from the already-registered HPE
+          HR Agent AS (confirming the audience=resource=issuer shape from §2 holds for any caller), and after picking
+          scopes and saving, Okta confirmed both "Delegation ✓" and "Resource connection ✓" in one step.</div></li>
+      </ol>
+      <h3>Where it stops</h3>
+      <p>The Bridge's own Connections &amp; Resources list shows this new connection tagged <code>A2A Server</code> /
+        <code>INCLUDE_ONLY</code>, with the correct scopes — but with an explicit warning, quoted verbatim:</p>
+      <div class="callout bad"><b class="bad-k">From the Bridge's own admin console:</b>
+        <blockquote>Connection type <code>IDENTITY_ASSERTION_A2A_SERVER</code> is not currently supported by this
+          adapter. Routing through this connection is disabled.</blockquote>
+      </div>
+      <p>Compare this to the existing, working MCP connection shown in the same list ("HPE order portal Bridge"),
+        which has a real backing resource entry (<code>hpe-order-portal-mcp-v4</code>, a concrete URL,
+        <code>Auth: okta-cross-app</code>) that the adapter <i>can</i> route through. The HR Agent's A2A connection
+        has no equivalent backing route — confirming this is a <b>Bridge product/adapter limitation</b>, not a
+        misconfiguration: Okta's core platform fully supports Agent-to-Agent delegation (proven by the direct path),
+        but the Bridge's HTTP-routing layer hasn't been built out to act on connections of this type.</p>
+      <p><b>Consequence for this project:</b> no <code>a2aCandidates()</code>/<code>resolveA2aUrl()</code> discovery
+        code, and no <code>ask_hr_agent</code> tool, were written in <code>packages/agent-bridge</code>. Writing
+        speculative candidate-URL-probing code would be pointless — there is nothing to find, since routing through
+        this connection type is explicitly disabled at the platform level, not merely undocumented.</p>
+      <div class="callout info"><b>If Okta ships adapter support for this connection type later:</b> the Okta-side
+        configuration above should carry over unchanged. Revisit this section, build
+        <code>a2aCandidates()</code>/<code>resolveA2aUrl()</code> next to the existing
+        <code>mcpCandidates()</code>/<code>resolveMcpUrl()</code> in <code>packages/agent-bridge/src/index.ts</code>
+        (probing via a GET to <code>&lt;candidate&gt;/.well-known/agent-card.json</code>, as <code>tryInitialize()</code>
+        already does for MCP), reuse <code>callAgentOverA2a()</code> from <code>packages/agent/src/a2a.ts</code> for
+        the actual call, and write <code>scripts/e2e-a2a-bridge.ts</code> only once the Bridge's real proxy URL shape
+        is empirically known.</div>
+      <p class="lead"><b>Housekeeping, not required:</b> since routing is disabled, there's no functional reason to
+        keep <code>HR_AGENT_URL</code> pointed at a dev tunnel rather than <code>http://localhost:3400</code> for
+        ongoing direct-path use — the tunnel only mattered for the Bridge's (currently nonfunctional) attempt to
+        reach the agent. Safe to leave in place or revert; a cleanup preference, not a correctness issue.</p>
+    </section>
+
+    <section id="s7">
+      <h2><span class="n">7</span>Okta console setup (as actually done)</h2>
+      <h3>A. Register the new AI agent</h3>
+      <ol class="steps">
+        <li data-k="cfg.7.1"><div>Directory → AI Agents → Register AI Agent. Name it <code>HPE HR Agent</code>. Allow
+          users to access this agent → create a new linked OIDC app.</div></li>
+        <li data-k="cfg.7.2"><div>Activate it, same steps as the existing agent's setup in
+          <a href="OKTA_SETUP.html">OKTA_SETUP.html</a> (its §1) — assign it to the same test user(s).</div></li>
+      </ol>
+      <h3>B. Its custom authorization server (Okta-native)</h3>
+      <ol class="steps">
+        <li data-k="cfg.7.3"><div>Security → API → Authorization Servers → Add Authorization Server. Name it (e.g.
+          "HPE HR Agent AS"), set an <b>Audience</b> (this becomes <code>HR_AGENT_URL</code>, e.g.
+          <code>http://localhost:3400</code>).</div></li>
+        <li data-k="cfg.7.4"><div><b>Scopes:</b> add <code>hr:read</code> and <code>hr:write</code>.</div></li>
+        <li data-k="cfg.7.5"><div><b>Access policy:</b> add a rule allowing the <b>JWT Bearer</b> grant type.
+          <b>Assigned to clients: explicitly add every caller here</b> — this does not happen automatically just
+          because a delegation link exists (§2's confirmed gotcha).</div></li>
+        <li data-k="cfg.7.6"><div>Note its <b>Issuer URL</b> → this becomes <code>HR_AGENT_AUTH_ISSUER</code>.</div></li>
+      </ol>
+      <h3>C. Wire the delegation for the direct path ("Connect to another AI Agent")</h3>
+      <ol class="steps">
+        <li data-k="cfg.7.7"><div>Caller = <b>Retail Ops Agent</b>. Resource (AI agent) = <b>HPE HR Agent</b>.</div></li>
+        <li data-k="cfg.7.8"><div>Authorization server = the one just created. Audience/resource URL = the AS's own
+          issuer URL (the step 1 <code>audience = resource</code> value from §2 — not <code>HR_AGENT_URL</code> as a
+          separate field).</div></li>
+        <li data-k="cfg.7.9"><div>Select scopes <code>hr:read</code>, <code>hr:write</code>.</div></li>
+        <li data-k="cfg.7.10"><div>Confirm the caller's client id is on the Access Policy's client list (step B.3) —
+          if the Okta System Log later shows <code>no_matching_policy</code> for this caller, check this first.</div></li>
+      </ol>
+      <h3>D. Bridge path — configured, confirmed blocked <span class="badge bad">see §6</span></h3>
+      <ol class="steps">
+        <li data-k="cfg.7.11"><div>Bridge console → Resources → Create resource: Type <code>A2A</code>, URL = the HR
+          Agent's reachable base URL.</div></li>
+        <li data-k="cfg.7.12"><div>Bridge console → the Bridge's own AI Agent → Resource connections → Add resource
+          connection → Connect to another AI agent → HPE HR Agent → select scopes → save.</div></li>
+        <li data-k="cfg.7.13"><div>Same Access Policy client-list check as C.4, for the Bridge agent's own client id.</div></li>
+        <li data-k="cfg.7.14"><div>Result: the connection appears, correctly scoped, but tagged with the adapter's
+          routing-disabled warning. No further Okta-side action resolves this.</div></li>
+      </ol>
+      <h3>Appendix — the alternative not taken</h3>
+      <p>Instead of an Okta-native custom AS, the HR Agent could run its own bespoke Express OAuth server, exactly
+        mirroring <code>packages/retail-auth</code> (its own signing key, its own <code>handleJwtBearer</code>, its
+        own <code>ALLOWED_SCOPES</code>). This is strictly more code, and buys back the "resource owner runs its own,
+        non-Okta-hosted AS" story the <i>original</i> XAA pattern already tells once. The Okta-native route tells a
+        different, equally real story — "two first-class Okta AI Agents talking to each other with nothing custom in
+        between" — the more interesting one for an agent-to-agent demo, and the one this project built.</p>
+    </section>
+
+    <section id="s8">
+      <h2><span class="n">8</span>What shipped</h2>
+      <ul class="status">
+        <li><span class="ic">✅</span><div>Scaffolded <code>packages/agent-hr</code>: package.json, tsconfig, config, in-memory dataset, skills.</div></li>
+        <li><span class="ic">✅</span><div><code>@a2a-js/sdk</code> server side: Agent Card, executor, Express mount on port 3400.</div></li>
+        <li><span class="ic">✅</span><div>Token verification middleware, tested first against a hardcoded token before wiring real Okta.</div></li>
+        <li><span class="ic">✅</span><div>Registered HPE HR Agent in Okta + its custom authorization server.</div></li>
+        <li><span class="ic">✅</span><div><code>packages/agent/src/a2a.ts</code> (direct path): exchange, tool, <code>callTool</code> special-case. Verified against the real HR Agent.</div></li>
+        <li><span class="ic">✅</span><div>HR portal demo UI: read, inline edit, quick PTO adjust, add-employee.</div></li>
+        <li><span class="ic">✅</span><div>UI differentiation between MCP and A2A tool calls in the main agent's trace log.</div></li>
+        <li><span class="ic">✅</span><div>e2e tests: <code>scripts/e2e-a2a.ts</code> (hermetic + live-LLM), zero regressions across <code>test:e2e</code>/<code>test:obo</code>/<code>test:bridge</code>.</div></li>
+        <li class="na"><span class="ic">⛔</span><div><b>Not built — blocked upstream (§6):</b> Bridge-side discovery code and <code>ask_hr_agent</code> in <code>packages/agent-bridge</code>. Revisit if/when Okta ships routing support for <code>IDENTITY_ASSERTION_A2A_SERVER</code> connections.</div></li>
+        <li class="na"><span class="ic">○</span><div><b>Not yet done, not blocking:</b> EC2 deployment (a third Caddy route + security-group rule for port 3400), same shape as the existing XAA/OBO/Bridge services.</div></li>
+      </ul>
+    </section>
+
+    <section id="s9">
+      <h2><span class="n">9</span>Security &amp; governance notes</h2>
+      <ul>
+        <li>The ID-JAG is single-use and short-lived (5 minutes) — unchanged versus ordinary XAA; Okta enforces this
+          itself for an Okta-native custom AS.</li>
+        <li>Scopes are the only access control on the HR Agent — no per-user role layer like the portal's
+          <code>PORTAL_USER_ROLES</code>. Narrowing the resource connection's scopes is what changes what the model
+          can ask the HR Agent to do; demonstrated live (granting only <code>hr:read</code> correctly blocks
+          <code>update_pto_request</code>).</li>
+        <li><code>hr:write</code> is the scope worth demonstrating being revoked live, the same way
+          <code>orders:write</code>/<code>returns:write</code> already are for the portal.</li>
+        <li>Anything the HR Agent returns is treated as untrusted input to the calling agent's own LLM turn, same as
+          any MCP tool result already is in <code>agent.ts</code>.</li>
+        <li>Token logging is opt-in and off by default (<code>HR_AGENT_LOG_CLAIMS</code>), matching the
+          <code>OBO_LOG_TOKEN</code> pattern elsewhere — claims only, never the raw token; the failure path logs
+          decoded claims too (without verifying) so a bad token's shape is diagnosable without turning this on.</li>
+        <li>The HR portal's loopback guard does not meaningfully stop tunnel-forwarded traffic (§4) — low risk given
+          an unguessable tunnel URL, but not a hard boundary if <code>HR_AGENT_URL</code> is ever pointed at a public
+          tunnel for an extended period.</li>
+      </ul>
+    </section>
+
+    <section id="s10">
+      <h2><span class="n">10</span>Testing</h2>
+      <p><code>scripts/e2e-a2a.ts</code>, following <code>scripts/e2e-obo.ts</code>'s shape: a mock Okta server
+        in-process serving both the org-AS token-exchange endpoint and the HR Agent's own AS (JWT-bearer + JWKS), the
+        <b>real</b> <code>agent-hr</code> process spawned and exercised over real HTTP, <code>packages/agent</code>'s
+        own <code>a2a.ts</code>/<code>agent.ts</code> imported in-process, a mock LLM, and a mock MCP server. Sections
+        covered: config validation; the happy path; scope narrowing to <code>hr:read</code> only; Okta's own
+        scope-narrowing retry; replay/audience/resource attacks against the HR Agent's AS; the HR Agent itself
+        rejecting bad bearer tokens (empty, expired, wrong-audience); a full chat loop exercising
+        <code>ask_hr_agent</code> through a mock outer LLM; and the tool correctly absent when no
+        <code>askHrAgent</code> callback is supplied. Runs hermetically by default and also with
+        <code>E2E_LIVE_LLM=1</code> against the real configured LLM provider. <code>npm run test:a2a</code>.</p>
+      <p class="lead">No Bridge-path e2e test exists or is planned, per §6.</p>
+    </section>
+
+    <section id="s11">
+      <h2><span class="n">11</span>Open items</h2>
+      <div class="tablewrap"><table>
+        <tr><th>Open item</th><th>Why it matters</th></tr>
+        <tr><td>Exact <code>act</code> claim nesting on the HR access token</td><td>Confirmed fields exist
+          (<code>iss</code>, <code>sub</code>, <code>aud</code>, <code>scope</code>, <code>act</code> with
+          <code>sub_profile</code>); exact nesting order wasn't specifically re-verified beyond what already worked.
+          Decode a real token if this ever matters for a feature that reads it.</td></tr>
+        <tr><td>Whether a future Bridge release adds <code>IDENTITY_ASSERTION_A2A_SERVER</code> routing support</td>
+          <td>The Okta-side configuration in §7.D is already in place and shouldn't need redoing if so; see §6 for
+          what to build at that point.</td></tr>
+      </table></div>
+    </section>
+  </main>
+
+  <footer>
+    <b>Sources</b>
+    <ul>
+      <li><a href="https://developer.okta.com/docs/guides/ai-agent-token-exchange/agent-to-agent/main/">Okta: Set up AI agent token exchange — agent-to-agent</a></li>
+      <li><a href="https://help.okta.com/oie/en-us/Content/topics/ai-agents/ai-agent-agent-to-agent.htm">Okta help: Agent-to-agent connections</a></li>
+      <li><a href="https://developer.okta.com/docs/concepts/xaa">Okta: Cross App Access concepts</a></li>
+      <li><a href="https://www.npmjs.com/package/@a2a-js/sdk">@a2a-js/sdk on npm</a></li>
+      <li>The Okta MCP Bridge's own admin console (Connections &amp; Resources tab) — primary source for §6's
+        finding; the "not currently supported by this adapter" text is quoted directly from that UI, observed live on
+        this tenant.</li>
+      <li>This project's own <code>xaa.ts</code>, <code>a2a.ts</code>, <code>agent.ts</code>, <code>index.ts</code>,
+        <code>packages/agent-hr/src/*</code>, <code>retail-auth/src/index.ts</code>,
+        <code>agent-bridge/src/index.ts</code>, <code>scripts/e2e-a2a.ts</code>, <code>e2e-obo.ts</code>, and
+        <a href="OKTA_SETUP.html">OKTA_SETUP.html</a> / <code>OBO_AGENT.md</code> / <code>AGENT_GATEWAY.md</code>.</li>
+    </ul>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var KEY = 'a2a-guide-checklist-v2';
+  var store = {};
+  try { store = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { store = {}; }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) { /* storage unavailable */ } }
+
+  var items = Array.prototype.slice.call(document.querySelectorAll('ol.steps > li[data-k]'));
+  function refresh() {
+    var done = items.filter(function (li) { return li.classList.contains('done'); }).length;
+    document.getElementById('pbar').style.width = (items.length ? (done / items.length) * 100 : 0) + '%';
+    document.getElementById('ptext').textContent = done + ' of ' + items.length + ' steps done';
+  }
+  items.forEach(function (li) {
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.setAttribute('aria-label', 'Mark step ' + li.dataset.k + ' as done');
+    cb.checked = store.hasOwnProperty(li.dataset.k) ? !!store[li.dataset.k] : true; // default: shown as already done
+    li.classList.toggle('done', cb.checked);
+    cb.addEventListener('change', function () {
+      store[li.dataset.k] = cb.checked;
+      li.classList.toggle('done', cb.checked);
+      save(); refresh();
+    });
+    li.insertBefore(cb, li.firstChild);
+  });
+  refresh();
+  document.getElementById('reset').addEventListener('click', function () {
+    store = {};
+    items.forEach(function (li) { store[li.dataset.k] = false; });
+    save();
+    items.forEach(function (li) { li.classList.remove('done'); li.firstChild.checked = false; });
+    refresh();
+  });
+
+  // copy buttons
+  Array.prototype.forEach.call(document.querySelectorAll('pre'), function (pre) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'copy'; b.textContent = 'Copy';
+    b.addEventListener('click', function () {
+      var text = pre.querySelector('code').innerText;
+      var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1400); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () {});
+      else { var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); done(); } catch (e) {} t.remove(); }
+    });
+    pre.appendChild(b);
+  });
+
+  // theme toggle (remembered when storage works)
+  var root = document.documentElement;
+  try { var t = localStorage.getItem('a2a-plan-theme'); if (t) root.setAttribute('data-theme', t); } catch (e) {}
+  document.getElementById('theme').addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+    var next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('a2a-plan-theme', next); } catch (e) {}
+  });
+
+  // highlight current section in the contents
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+  var map = {};
+  links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        var a = map[en.target.id];
+        if (!a) return;
+        if (en.isIntersecting) { links.forEach(function (l) { l.classList.remove('on'); }); a.classList.add('on'); }
+      });
+    }, { rootMargin: '-10% 0px -80% 0px' });
+    Array.prototype.forEach.call(document.querySelectorAll('main section[id]'), function (s) { io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

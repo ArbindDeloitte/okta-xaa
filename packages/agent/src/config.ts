@@ -86,6 +86,15 @@ export const cfg = {
     authIssuer: trimSlash(env('GATEWAY_AUTH_ISSUER', '')),
   },
 
+  // Direct A2A (optional): a second agent (the HPE HR Agent) this agent can call over the real Agent2Agent
+  // protocol, secured by the same Cross App Access mechanism as `retail` above -- see a2a.ts and
+  // docs/A2A_AGENT_TO_AGENT.md. Empty HR_AGENT_URL / HR_AGENT_AUTH_ISSUER = the ask_hr_agent tool is not offered.
+  hrAgent: {
+    url: trimSlash(env('HR_AGENT_URL', '')),
+    authIssuer: trimSlash(env('HR_AGENT_AUTH_ISSUER', '')),
+    scopes: env('HR_AGENT_SCOPES', 'hr:read hr:write').split(/\s+/).filter(Boolean),
+  },
+
   llm: {
     provider: llmProvider,
     // anthropic: AGENT_MODEL_ID wins (e.g. "anthropic.claude-haiku-4-5" on Bedrock), then ANTHROPIC_MODEL.

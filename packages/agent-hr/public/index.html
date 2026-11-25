@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HPE HR Portal</title>
+<style>
+  :root { --bg:#f4f6f5; --card:#fff; --ink:#16211d; --mute:#5d6b66; --line:#dfe6e3; --brand:#01a982; --brand-ink:#04140f; --link:#00755a; --ok:#067647; --okbg:#ecfdf3; --bad:#b42318; --badbg:#fef3f2; --warn:#b54708; --warnbg:#fffaeb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0e1412; --card:#151d1a; --ink:#e6eeea; --mute:#93a39d; --line:#26332e; --brand:#2fd3a7; --brand-ink:#04140f; --link:#4fe0b8; --ok:#6ce9a6; --okbg:#0b2a1b; --bad:#fda29b; --badbg:#2e1311; --warn:#fec84b; --warnbg:#2b2008; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; background:var(--card); border-bottom:1px solid var(--line); border-top:4px solid var(--brand); flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  .mark { background:var(--brand); color:var(--brand-ink); font-weight:800; letter-spacing:.04em; padding:2px 8px; border-radius:4px; font-size:13px; }
+  header .tag { color:var(--mute); font-size:12px; }
+  main { margin:20px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; overflow-x:auto; }
+  .note { margin:0 20px 20px; color:var(--mute); font-size:12px; }
+  .hint { color:var(--mute); margin:0 0 12px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
+  td.wrap { white-space:normal; }
+  th { color:var(--mute); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .pto { font-weight:700; }
+  .pto.low { color:var(--bad); }
+  .pto.ok { color:var(--ok); }
+  code { font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  a { color:var(--link); }
+  tr.editing input { width:100%; min-width:70px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--ink); font:inherit; font-size:13px; }
+  tr.editing input.num { width:64px; }
+  .actions { white-space:nowrap; }
+  .actions button, .adj { border:1px solid var(--line); background:var(--card); color:var(--ink); padding:3px 9px; border-radius:6px; font:inherit; font-size:12px; cursor:pointer; }
+  .actions button:hover, .adj:hover { border-color:var(--brand); }
+  .actions .save { background:var(--brand); color:var(--brand-ink); border-color:var(--brand); font-weight:600; }
+  .adj { padding:2px 7px; margin:0 4px; font-weight:700; }
+  .toolbar { margin:0 0 10px; }
+  .toolbar button { border:1px solid var(--brand); background:var(--brand); color:var(--brand-ink); padding:6px 12px; border-radius:6px; font:inherit; font-weight:600; cursor:pointer; }
+  .toolbar button:disabled { opacity:.5; cursor:default; }
+  tr.editing input::placeholder { color:var(--mute); }
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">HPE</span>
+  <h1>HR Portal</h1>
+  <span class="tag">HPE HR Agent's own data · A2A resource · demo view (localhost only) · auto-refreshing</span>
+</header>
+<main id="view">Loading…</main>
+<p class="note">Sample data only, fictional names. Updates live: approve a PTO request through the AI agent (over A2A) and this page reflects the new balance within a couple of seconds, with no refresh needed.</p>
+<script>
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let data = [];
+let editingIndex = null; // while editing, the 2s poll still fetches but does not re-render over the open form
+let adding = false; // a new, not-yet-saved row at the bottom of the table
+
+function row(e, i) {
+  if (editingIndex === i) {
+    return `<tr data-row="${i}" class="editing">
+      <td><input data-f="name" value="${esc(e.name)}" /></td>
+      <td><input data-f="title" value="${esc(e.title)}" /></td>
+      <td><input data-f="department" value="${esc(e.department)}" /></td>
+      <td><input data-f="manager" value="${esc(e.manager)}" /></td>
+      <td><input data-f="email" value="${esc(e.email)}" /></td>
+      <td><input data-f="ptoBalanceDays" class="num" type="number" min="0" value="${esc(e.ptoBalanceDays)}" /></td>
+      <td class="actions"><button class="save" data-i="${i}">Save</button> <button class="cancel">Cancel</button></td>
+    </tr>`;
+  }
+  return `<tr data-row="${i}">
+    <td>${esc(e.name)}</td>
+    <td class="wrap">${esc(e.title)}</td>
+    <td class="wrap">${esc(e.department)}</td>
+    <td>${esc(e.manager)}</td>
+    <td><code>${esc(e.email)}</code></td>
+    <td class="pto ${e.ptoBalanceDays < 5 ? 'low' : 'ok'}">
+      <button class="adj" data-i="${i}" data-d="-1" title="Deduct 1 day">−</button>${esc(e.ptoBalanceDays)} day(s)<button class="adj" data-i="${i}" data-d="1" title="Add 1 day (add leave)">+</button>
+    </td>
+    <td class="actions"><button class="edit" data-i="${i}">Edit</button></td>
+  </tr>`;
+}
+
+function render() {
+  const v = document.getElementById('view');
+  v.innerHTML = `<p class="hint">Reached by the HPE Ops Agent over the Agent2Agent (A2A) protocol, secured by Okta Cross App Access -- not MCP. The agent only ever sees what it asks for in plain language; it never queries this table directly. Use the +/− buttons to add or deduct a day of leave, Edit to change any field, or Add employee below, for setting up a demo.</p>
+  <div class="toolbar"><button id="addBtn" ${adding ? 'disabled' : ''}>+ Add employee</button></div>
+  <table><tr><th>Name</th><th>Title</th><th>Department</th><th>Manager</th><th>Email</th><th>PTO balance</th><th></th></tr>` +
+  data.map(row).join('') +
+  (adding ? addRow() : '') +
+  `</table>`;
+  document.querySelectorAll('.edit').forEach((b) => (b.onclick = () => { editingIndex = Number(b.dataset.i); render(); }));
+  document.querySelectorAll('.cancel').forEach((b) => (b.onclick = () => { editingIndex = null; render(); }));
+  document.querySelectorAll('.save').forEach((b) => (b.onclick = () => save(Number(b.dataset.i))));
+  document.querySelectorAll('.adj').forEach((b) => (b.onclick = () => adjust(Number(b.dataset.i), Number(b.dataset.d))));
+  document.getElementById('addBtn').onclick = () => { adding = true; render(); };
+  const newTr = document.querySelector('tr[data-new]');
+  if (newTr) {
+    newTr.querySelector('.saveNew').onclick = () => saveNew(newTr);
+    newTr.querySelector('.cancelNew').onclick = () => { adding = false; render(); };
+  }
+}
+
+function addRow() {
+  return `<tr class="editing" data-new="1">
+    <td><input data-f="name" placeholder="Full name" /></td>
+    <td><input data-f="title" placeholder="Title" /></td>
+    <td><input data-f="department" placeholder="Department" /></td>
+    <td><input data-f="manager" placeholder="Manager" /></td>
+    <td><input data-f="email" placeholder="Email" /></td>
+    <td><input data-f="ptoBalanceDays" class="num" type="number" min="0" value="0" /></td>
+    <td class="actions"><button class="saveNew">Save</button> <button class="cancelNew">Cancel</button></td>
+  </tr>`;
+}
+
+async function saveNew(tr) {
+  const body = {};
+  tr.querySelectorAll('input').forEach((inp) => { body[inp.dataset.f] = inp.type === 'number' ? Number(inp.value) : inp.value; });
+  const r = await fetch('/portal/api/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(j.message || 'Add failed.'); return; }
+  data.push(j);
+  adding = false;
+  render();
+}
+
+async function put(i, body) {
+  const r = await fetch(`/portal/api/employees/${i}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(j.message || 'Save failed.'); return false; }
+  data[i] = j;
+  return true;
+}
+
+async function save(i) {
+  const tr = document.querySelector(`tr[data-row="${i}"]`);
+  const body = {};
+  tr.querySelectorAll('input').forEach((inp) => { body[inp.dataset.f] = inp.type === 'number' ? Number(inp.value) : inp.value; });
+  if (await put(i, body)) editingIndex = null;
+  render();
+}
+
+async function adjust(i, delta) {
+  await put(i, { ptoBalanceDays: Math.max(0, data[i].ptoBalanceDays + delta) });
+  render();
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/portal/api/employees');
+    if (r.ok) { data = await r.json(); if (editingIndex === null && !adding) render(); }
+  } catch { /* server restarting */ }
+}
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>
