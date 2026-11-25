@@ -4,10 +4,14 @@
   "private": true,
   "description": "Okta Cross App Access (XAA / ID-JAG) demo: an AI agent talks to a Retail Portal MCP server, centrally governed by Okta.",
   "type": "module",
-  "workspaces": ["packages/*"],
-  "engines": { "node": ">=20" },
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "concurrently -k -n agent,auth,portal -c cyan,magenta,green \"npm:dev:agent\" \"npm:dev:auth\" \"npm:dev:portal\"",
+    "start": "concurrently -k -n agent,obo,bridge,auth,portal -c cyan,blue,yellow,magenta,green \"npm:dev:agent\" \"npm:dev:agent-obo\" \"npm:dev:agent-bridge\" \"npm:dev:auth\" \"npm:dev:portal\"",
     "dev:agent": "npm run dev -w @xaa/agent",
     "dev:agent-limited": "npm run dev:limited -w @xaa/agent",
     "start:both": "concurrently -k -n agent,limited,auth,portal -c cyan,yellow,magenta,green \"npm:dev:agent\" \"npm:dev:agent-limited\" \"npm:dev:auth\" \"npm:dev:portal\"",
@@ -18,14 +22,17 @@
     "dev:portal": "npm run dev -w @xaa/retail-portal",
     "gen:key": "tsx scripts/gen-agent-key.ts",
     "show:key": "tsx scripts/gen-agent-key.ts --public",
-    "typecheck": "tsc -p packages/agent --noEmit && tsc -p packages/agent-obo --noEmit && tsc -p packages/retail-auth --noEmit && tsc -p packages/retail-portal --noEmit",
+    "typecheck": "tsc -p packages/agent --noEmit && tsc -p packages/agent-obo --noEmit && tsc -p packages/agent-bridge --noEmit && tsc -p packages/retail-auth --noEmit && tsc -p packages/retail-portal --noEmit",
     "check:env": "tsx scripts/check-env.ts",
     "check:aws": "tsx scripts/aws-check.ts",
     "list:models": "tsx scripts/list-models.ts",
     "test:e2e": "tsx scripts/e2e.ts",
     "test:gateway": "tsx scripts/e2e-gateway.ts",
     "test:gateway-okta": "tsx scripts/e2e-gateway-okta.ts",
-    "test:obo": "tsx scripts/e2e-obo.ts"
+    "test:obo": "tsx scripts/e2e-obo.ts",
+    "dev:agent-bridge": "npm run dev -w @xaa/agent-bridge",
+    "start:bridge": "npm run dev:agent-bridge",
+    "test:bridge": "tsx scripts/e2e-bridge.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

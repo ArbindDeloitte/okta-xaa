@@ -33,6 +33,8 @@ export const oboCfg = {
     .filter(Boolean),
   /** Ask for a refresh token at sign-in (the login app needs the Refresh Token grant) so the subject token can be renewed. */
   offlineAccess: env('OBO_OFFLINE_ACCESS', 'false') === 'true',
+  /** Debug only. '' = off (default) | 'claims' = log the decoded OBO token claims | 'full' = also log the raw token (a live credential until it expires). */
+  logToken: ((v) => (v === 'claims' || v === 'full' ? v : ''))(env('OBO_LOG_TOKEN', '').toLowerCase()),
 };
 
 /** Settings that must be present before the app can start, with what each one is. */

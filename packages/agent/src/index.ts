@@ -43,6 +43,7 @@ const oktaConfig = await (async () => {
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1); // behind Caddy: without this the "secure" session cookie is never sent over the proxy's HTTP hop
 app.use(express.json({ limit: '100kb' }));
 app.use(
   session({

@@ -20,9 +20,11 @@ const jwks = createRemoteJWKSet(new URL(`${AUTH_ISSUER}/jwks.json`));
 // Optional second token source: an Okta custom authorization server that mints tokens through the OAuth 2.0
 // on-behalf-of exchange (RFC 8693). Those tokens are issued by Okta itself, so no retail auth server is involved;
 // they name the user (sub/uid) and the agent that acted for them (act.sub). Off unless OBO_ISSUER is set.
-const OBO_ISSUER = trimSlash(env('OBO_ISSUER', ''));
+// OBO_ISSUER stays ONE url (the OBO agent app uses the same variable as its exchange server). Further Okta servers the portal
+// should trust, e.g. the one behind the Okta MCP Bridge, go in OBO_EXTRA_ISSUERS (comma-separated).
+const OBO_ISSUERS = [...new Set([env('OBO_ISSUER', ''), ...env('OBO_EXTRA_ISSUERS', '').split(',')].map((v) => trimSlash(v.trim())).filter(Boolean))];
 const OBO_AUDIENCE = env('OBO_AUDIENCE', RESOURCE);
-const oboJwks = OBO_ISSUER ? createRemoteJWKSet(new URL(`${OBO_ISSUER}/v1/keys`)) : undefined;
+const oboJwks = new Map(OBO_ISSUERS.map((iss) => [iss, createRemoteJWKSet(new URL(`${iss}/v1/keys`))]));
 
 /** "sub" of the outermost actor in an RFC 8693 `act` claim (the app that performed the exchange). */
 const actorOf = (act: unknown): string | undefined =>
@@ -72,10 +74,11 @@ async function requireBearer(req: Request, res: Response, next: NextFunction) {
   try {
     let issuer: unknown;
     try { issuer = decodeJwt(m[1]).iss; } catch { /* not a JWT: the verification below rejects it */ }
-    if (oboJwks && issuer === OBO_ISSUER) {
+    const keysOfIssuer = typeof issuer === 'string' ? oboJwks.get(trimSlash(issuer)) : undefined;
+    if (keysOfIssuer) {
       // Okta on-behalf-of token: verified against Okta's keys. Okta access tokens carry the user as `sub` (login, usually an
       // email) and `uid` (the 00u… id), the calling app as `cid`, and scopes as the array `scp`.
-      const { payload } = await jwtVerify(m[1], oboJwks, { issuer: OBO_ISSUER, audience: OBO_AUDIENCE, algorithms: ['RS256'] });
+      const { payload } = await jwtVerify(m[1], keysOfIssuer, { issuer: trimSlash(issuer as string), audience: OBO_AUDIENCE, algorithms: ['RS256'] });
       const login = String(payload.sub);
       req.principal = buildPrincipal({
         sub: typeof payload.uid === 'string' ? payload.uid : login,
@@ -105,7 +108,9 @@ async function requireBearer(req: Request, res: Response, next: NextFunction) {
     next();
   } catch (e) {
     const desc = e instanceof joseErrors.JWTExpired ? 'Token expired' : 'Invalid token';
-    recordAudit({ via: 'auth', user: 'unknown', tool: 'bearer-validation', decision: 'deny', reason: `${desc}: ${(e as Error).message}` });
+    let iss = '';
+    try { iss = String(decodeJwt(m[1]).iss ?? ''); } catch { /* not a JWT */ }
+    recordAudit({ via: 'auth', user: 'unknown', tool: 'bearer-validation', decision: 'deny', reason: `${desc}: ${(e as Error).message}${iss ? ` (iss ${iss})` : ''}` });
     challenge('invalid_token', desc);
   }
 }
@@ -200,7 +205,7 @@ const server = app.listen(PORT, () => {
   console.log(`  MCP endpoint : ${RESOURCE}/mcp`);
   console.log(`  Console      : ${RESOURCE}/`);
   console.log(`  Trusts AS    : ${AUTH_ISSUER}`);
-  if (OBO_ISSUER) console.log(`  Also trusts  : ${OBO_ISSUER} (Okta on-behalf-of tokens, audience ${OBO_AUDIENCE})`);
+  for (const iss of OBO_ISSUERS) console.log(`  Also trusts  : ${iss} (Okta tokens, audience ${OBO_AUDIENCE})`);
 });
 server.on('error', (e: NodeJS.ErrnoException) => {
   if (e.code === 'EADDRINUSE') {

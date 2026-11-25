@@ -94,6 +94,10 @@ export async function performObo(subjectToken: string, trace: TraceStep[]): Prom
     detail: `scope: ${scp.join(' ') || '(none)'} · acting user=${String(claims.uid ?? claims.sub ?? '?')} · agent (act.sub)=${act?.sub ? String(act.sub) : 'MISSING: no act claim'}`,
     data: { claims },
   });
+  if (oboCfg.logToken) {
+    console.log(`[obo] exchanged token claims:\n${JSON.stringify(claims, null, 2)}`);
+    if (oboCfg.logToken === 'full') console.log(`[obo] RAW OBO ACCESS TOKEN (debug, treat as a password): ${accessToken}`);
+  }
   const exp = typeof claims.exp === 'number' ? claims.exp * 1000 : Date.now() + Number(r.json.expires_in ?? 3600) * 1000;
   return { accessToken, scope: scp, expiresAt: exp, claims };
 }

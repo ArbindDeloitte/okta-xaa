@@ -42,6 +42,7 @@ const loginConfig = await oidc.discovery(
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1); // behind Caddy: lets the "secure" session cookie work over the proxy's HTTP hop
 app.use(express.json({ limit: '100kb' }));
 app.use(
   session({

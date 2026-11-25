@@ -23,7 +23,9 @@ export function commonToolPrefix(names: string[]): string {
   if (names.length < 2) return '';
   const i = names[0].indexOf('_');
   if (i <= 0) return '';
-  const p = names[0].slice(0, i + 1);
+  let end = i + 1;
+  while (names.every((n) => n[end] === '_')) end++; // "server__tool" style: take the whole run of underscores
+  const p = names[0].slice(0, end);
   return names.every((n) => n.startsWith(p) && n.length > p.length) ? p : '';
 }
 
